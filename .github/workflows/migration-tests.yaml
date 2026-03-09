@@ -95,7 +95,6 @@ jobs:
         with:
           name: apim-distribution
           path: ${{ steps.find_dist.outputs.dist_path }}
-          retention-days: 7
           if-no-files-found: error
 
   prepare-and-migrate:
