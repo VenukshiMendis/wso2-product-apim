@@ -1,4 +1,4 @@
-name: APIM Database Migration Tests
+name: APIM Database Migration Tests Updated
 
 on:
   workflow_dispatch: {}
