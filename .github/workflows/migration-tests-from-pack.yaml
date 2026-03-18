@@ -359,7 +359,8 @@ jobs:
 
       - name: Identity Migration - Download and Setup
         env:
-          IDENTITY_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2is-migration-1.1.175.zip"
+#          IDENTITY_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2is-migration-1.1.175.zip"
+          IDENTITY_MIGRATION_S3_URL: "https://drive.google.com/uc?export=download&id=15H3pB8kHmIdqGpsSX8K4coDDGwthVVpV"
         run: |
           echo "=== Step 1: Identity Migration Setup ==="
           
