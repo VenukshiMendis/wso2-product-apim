@@ -279,9 +279,9 @@ jobs:
             ' "$DEPLOYMENT_TOML.tmp" > "$DEPLOYMENT_TOML.tmp2"
 
           # Append MySQL database configurations and gateway environment from static template
-          cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml >> "$DEPLOYMENT_TOML.tmp"
+          cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml >> "$DEPLOYMENT_TOML.tmp2"
           
-          mv "$DEPLOYMENT_TOML.tmp" "$DEPLOYMENT_TOML"
+          mv "$DEPLOYMENT_TOML.tmp2" "$DEPLOYMENT_TOML"
           
           echo "deployment.toml configured with MySQL database settings, gateway environment and asymmetric encryption"
           
@@ -289,9 +289,6 @@ jobs:
           echo "::group::Final deployment.toml"
           cat "$DEPLOYMENT_TOML"
           echo "::endgroup::"
-          
-          echo "=== Last 30 lines of the Updated deployment.toml ==="
-          tail -30 "$DEPLOYMENT_TOML"
 
       - name: Re-zip distribution
         run: |
