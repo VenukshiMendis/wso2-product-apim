@@ -218,7 +218,7 @@ jobs:
           
           echo "Keystore and truststore files replaced in $SECURITY_DIR"
 
-      - name: Configure deployment.toml with MySQL database settings
+      - name: Configure deployment.toml with MySQL database settings and and asymmetric encryption
         run: |
           DEPLOYMENT_TOML="$EXTRACTED_DIR/repository/conf/deployment.toml"
           
@@ -283,11 +283,13 @@ jobs:
           
           mv "$DEPLOYMENT_TOML.tmp" "$DEPLOYMENT_TOML"
           
-          echo "deployment.toml configured with MySQL database settings and gateway environment"
-           echo "=== Updated deployment.toml ==="
+          echo "deployment.toml configured with MySQL database settings, gateway environment and asymmetric encryption"
+          
+          echo "=== Updated deployment.toml ==="
           echo "::group::Final deployment.toml"
           cat "$DEPLOYMENT_TOML"
-          echo "::endgroup::
+          echo "::endgroup::"
+          
           echo "=== Last 30 lines of the Updated deployment.toml ==="
           tail -30 "$DEPLOYMENT_TOML"
 
