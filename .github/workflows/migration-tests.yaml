@@ -218,15 +218,31 @@ jobs:
           
           echo "Keystore and truststore files replaced in $SECURITY_DIR"
 
-      - name: Configure deployment.toml with MySQL database settings and and asymmetric encryption
+      - name: Configure deployment.toml with MySQL database settings and asymmetric encryption
         run: |
+          set -e
+
           DEPLOYMENT_TOML="$EXTRACTED_DIR/repository/conf/deployment.toml"
-          
+
+          echo "=== Step: Configure deployment.toml ==="
+          echo "DEPLOYMENT_TOML=$DEPLOYMENT_TOML"
+
           # Backup original deployment.toml
           cp "$DEPLOYMENT_TOML" "$DEPLOYMENT_TOML.backup"
-          
-          # Read the original file and remove existing sections
-          # Remove existing database.apim_db, database.shared_db, apim.gateway.environment, and apim.sync_runtime_artifacts.gateway sections
+
+          echo "=== Debug: Original deployment.toml path ==="
+          ls -l "$DEPLOYMENT_TOML" "$DEPLOYMENT_TOML.backup"
+
+          echo "=== Debug: First 40 lines of original deployment.toml ==="
+          head -40 "$DEPLOYMENT_TOML.backup" || true
+
+          echo "=== Debug: keystore-related lines in original deployment.toml ==="
+          grep -n "keystore" "$DEPLOYMENT_TOML.backup" || true
+
+          echo "=== Debug: keystore-related lines with hidden chars in original deployment.toml ==="
+          grep -n "keystore" "$DEPLOYMENT_TOML.backup" | cat -A || true
+
+          # Remove sections to be replaced
           awk '
             /^\[database\.apim_db\]/ { skip=1; next }
             /^\[database\.shared_db\]/ { skip=1; next }
@@ -237,58 +253,111 @@ jobs:
             skip { next }
             !skip { print }
           ' "$DEPLOYMENT_TOML.backup" > "$DEPLOYMENT_TOML.tmp"
-          
-          # Insert [keystore] before first [keystore.*] section
+
+          echo "=== Debug: After removing replaceable sections -> tmp ==="
+          ls -l "$DEPLOYMENT_TOML.tmp"
+
+          echo "=== Debug: keystore-related lines in tmp ==="
+          grep -n "keystore" "$DEPLOYMENT_TOML.tmp" || true
+
+          echo "=== Debug: keystore-related lines with hidden chars in tmp ==="
+          grep -n "keystore" "$DEPLOYMENT_TOML.tmp" | cat -A || true
+
+          echo "=== Debug: Last 40 lines of tmp before keystore insertion ==="
+          tail -40 "$DEPLOYMENT_TOML.tmp" || true
+
+          # Normalize CRLF just in case
+          sed -i 's/\r$//' "$DEPLOYMENT_TOML.tmp"
+
+          echo "=== Debug: Running keystore insertion awk ==="
           awk '
             BEGIN {
               keystore_found=0
               inserted_key=0
             }
-    
-            /^\[keystore\]$/ {
+
+            /^[[:space:]]*\[keystore\][[:space:]]*$/ {
+              print "### DEBUG_AWK: Existing [keystore] section found" > "/dev/stderr"
               keystore_found=1
               print
               next
             }
-    
-            keystore_found && !inserted_key && /^\[/ {
+
+            keystore_found && !inserted_key && /^[[:space:]]*\[/ {
+              print "### DEBUG_AWK: Inserting property inside existing [keystore]" > "/dev/stderr"
               print "userstore_password_encryption = \"InternalKeyStore\""
               print ""
               inserted_key=1
               keystore_found=0
             }
-    
-            /^\[keystore\.[^]]+\]/ && !inserted_key && !keystore_found {
+
+            /^[[:space:]]*\[keystore\.[^]]+\][[:space:]]*$/ && !inserted_key && !keystore_found {
+              print "### DEBUG_AWK: Inserting new [keystore] before first [keystore.*] section" > "/dev/stderr"
               print "[keystore]"
               print "userstore_password_encryption = \"InternalKeyStore\""
               print ""
               inserted_key=1
             }
-    
+
             { print }
-    
+
             END {
-            if (keystore_found && !inserted_key) {
-              print "userstore_password_encryption = \"InternalKeyStore\""
+              if (keystore_found && !inserted_key) {
+                print "### DEBUG_AWK: Appending property at end of existing [keystore] block" > "/dev/stderr"
+                print "userstore_password_encryption = \"InternalKeyStore\""
               } else if (!inserted_key) {
-              print ""
-              print "[keystore]"
-              print "userstore_password_encryption = \"InternalKeyStore\""
+                print "### DEBUG_AWK: No keystore section found, appending new [keystore] block at file end" > "/dev/stderr"
+                print ""
+                print "[keystore]"
+                print "userstore_password_encryption = \"InternalKeyStore\""
               }
             }
-            ' "$DEPLOYMENT_TOML.tmp" > "$DEPLOYMENT_TOML.tmp2"
+          ' "$DEPLOYMENT_TOML.tmp" > "$DEPLOYMENT_TOML.tmp2"
 
-          # Append MySQL database configurations and gateway environment from static template
+          echo "=== Debug: After keystore insertion -> tmp2 ==="
+          ls -l "$DEPLOYMENT_TOML.tmp2"
+
+          echo "=== Debug: Search for inserted keystore config in tmp2 ==="
+          grep -n "userstore_password_encryption\|^\[keystore\]\|^\[keystore\." "$DEPLOYMENT_TOML.tmp2" || true
+
+          echo "=== Debug: keystore-related lines with hidden chars in tmp2 ==="
+          grep -n "keystore\|userstore_password_encryption" "$DEPLOYMENT_TOML.tmp2" | cat -A || true
+
+          echo "=== Debug: Context around keystore lines in tmp2 ==="
+          grep -n -A4 -B4 "keystore\|userstore_password_encryption" "$DEPLOYMENT_TOML.tmp2" || true
+
+          echo "=== Debug: Appending migration-deployment.toml to tmp2 ==="
+          ls -l .github/WORKFLOW_ARTIFACTS/migration-deployment.toml
+          echo "--- migration-deployment.toml content ---"
+          cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml
+          echo "--- end migration-deployment.toml ---"
+
           cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml >> "$DEPLOYMENT_TOML.tmp2"
-          
+
+          echo "=== Debug: After append, before final move ==="
+          echo "--- Search for keystore/system/encryption/db sections in tmp2 ---"
+          grep -n "userstore_password_encryption\|^\[keystore\]\|^\[keystore\.\|^\[system.parameter\]\|^\[encryption\]\|^\[database.apim_db\]\|^\[database.shared_db\]" "$DEPLOYMENT_TOML.tmp2" || true
+
           mv "$DEPLOYMENT_TOML.tmp2" "$DEPLOYMENT_TOML"
-          
+
           echo "deployment.toml configured with MySQL database settings, gateway environment and asymmetric encryption"
-          
+
+          echo "=== Debug: Final deployment.toml file info ==="
+          ls -l "$DEPLOYMENT_TOML"
+
+          echo "=== Debug: Search final deployment.toml for important sections ==="
+          grep -n "userstore_password_encryption\|^\[keystore\]\|^\[keystore\.\|^\[system.parameter\]\|^\[encryption\]\|^\[database.apim_db\]\|^\[database.shared_db\]" "$DEPLOYMENT_TOML" || true
+
+          echo "=== Debug: Context around inserted keystore property in final file ==="
+          grep -n -A4 -B4 "keystore\|userstore_password_encryption" "$DEPLOYMENT_TOML" || true
+
           echo "=== Updated deployment.toml ==="
           echo "::group::Final deployment.toml"
           cat "$DEPLOYMENT_TOML"
           echo "::endgroup::"
+
+          echo "=== Last 50 lines of final deployment.toml ==="
+          tail -50 "$DEPLOYMENT_TOML" || true
 
       - name: Re-zip distribution
         run: |
