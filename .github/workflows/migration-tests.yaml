@@ -237,6 +237,46 @@ jobs:
             skip { next }
             !skip { print }
           ' "$DEPLOYMENT_TOML.backup" > "$DEPLOYMENT_TOML.tmp"
+          
+          # Insert [keystore] before first [keystore.*] section
+          awk '
+            BEGIN {
+              keystore_found=0
+              inserted_key=0
+            }
+    
+            /^\[keystore\]$/ {
+              keystore_found=1
+              print
+              next
+            }
+    
+            keystore_found && !inserted_key && /^\[/ {
+              print "userstore_password_encryption = \"InternalKeyStore\""
+              print ""
+              inserted_key=1
+              keystore_found=0
+            }
+    
+            /^\[keystore\.[^]]+\]/ && !inserted_key && !keystore_found {
+              print "[keystore]"
+              print "userstore_password_encryption = \"InternalKeyStore\""
+              print ""
+              inserted_key=1
+            }
+    
+            { print }
+    
+            END {
+            if (keystore_found && !inserted_key) {
+              print "userstore_password_encryption = \"InternalKeyStore\""
+              } else if (!inserted_key) {
+              print ""
+              print "[keystore]"
+              print "userstore_password_encryption = \"InternalKeyStore\""
+              }
+            }
+            ' "$DEPLOYMENT_TOML.tmp" > "$DEPLOYMENT_TOML.tmp2"
 
           # Append MySQL database configurations and gateway environment from static template
           cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml >> "$DEPLOYMENT_TOML.tmp"
@@ -244,7 +284,11 @@ jobs:
           mv "$DEPLOYMENT_TOML.tmp" "$DEPLOYMENT_TOML"
           
           echo "deployment.toml configured with MySQL database settings and gateway environment"
-          echo "=== Updated deployment.toml ==="
+           echo "=== Updated deployment.toml ==="
+          echo "::group::Final deployment.toml"
+          cat "$DEPLOYMENT_TOML"
+          echo "::endgroup::
+          echo "=== Last 30 lines of the Updated deployment.toml ==="
           tail -30 "$DEPLOYMENT_TOML"
 
       - name: Re-zip distribution
