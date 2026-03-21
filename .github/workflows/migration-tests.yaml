@@ -318,6 +318,13 @@ jobs:
             exit 1
           fi
 
+      - name: Upload Modified APIM distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: modified-apim-distribution
+          path: all-in-one-apim/modules/distribution/product/target/wso2am-*-SNAPSHOT.zip
+          if-no-files-found: error
+
       - name: Install dependencies
         run: |
           sudo apt-get update
