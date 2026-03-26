@@ -398,15 +398,11 @@ jobs:
               sleep 2
             done
           
-            # Configure APIM database
-            mysql -h 127.0.0.1 -P 3306 -uroot -prootpass <<EOF
-            ALTER DATABASE apim_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;
-            EOF
+            # Configure APIM database using -e flag
+            mysql -h 127.0.0.1 -P 3306 -uroot -prootpass -e "ALTER DATABASE apim_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
           
-            # Configure Shared database
-            mysql -h 127.0.0.1 -P 3307 -uroot -prootpass <<EOF
-            ALTER DATABASE shared_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;
-            EOF
+            # Configure Shared database using -e flag
+            mysql -h 127.0.0.1 -P 3307 -uroot -prootpass -e "ALTER DATABASE shared_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
           
             echo "MySQL databases configured successfully"
           
