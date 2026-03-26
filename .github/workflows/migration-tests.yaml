@@ -364,7 +364,7 @@ jobs:
       - name: Upload Modified APIM distribution artifact
         uses: actions/upload-artifact@v4
         with:
-          name: modified-apim-distribution
+          name: modified-apim-distribution-${{ matrix.db_type }}
           path: all-in-one-apim/modules/distribution/product/target/wso2am-*-SNAPSHOT.zip
           if-no-files-found: error
 
