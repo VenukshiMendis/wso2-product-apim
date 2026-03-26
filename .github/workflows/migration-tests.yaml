@@ -399,10 +399,10 @@ jobs:
             done
           
             # Configure APIM database using -e flag
-            mysql -h 127.0.0.1 -P 3306 -uroot -prootpass -e "ALTER DATABASE apim_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
+            mysql -h 127.0.0.1 -P 3306 -uroot -prootpass -e "ALTER DATABASE WSO2AM_APIMGT_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
           
             # Configure Shared database using -e flag
-            mysql -h 127.0.0.1 -P 3307 -uroot -prootpass -e "ALTER DATABASE shared_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
+            mysql -h 127.0.0.1 -P 3307 -uroot -prootpass -e "ALTER DATABASE WSO2AM_COMMON_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
           
             echo "MySQL databases configured successfully"
           
