@@ -142,7 +142,7 @@ jobs:
               -e MYSQL_PASSWORD=apimpass 
               -p 3306:3306 mysql:8.0
             
-            docker run -d --name shared_db 
+            docker run -d --name shared_db \
               -e MYSQL_ROOT_PASSWORD=rootpass \
               -e MYSQL_DATABASE=WSO2AM_COMMON_DB \
               -e MYSQL_USER=shared_user \
