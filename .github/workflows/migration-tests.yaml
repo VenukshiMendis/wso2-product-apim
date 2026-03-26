@@ -156,7 +156,7 @@ jobs:
             echo "Starting Azure SQL Edge for APIM DB..."
             docker run -d --name apim_db \
               -e ACCEPT_EULA="Y" \
-              -e MSSQL_SA_PASSWORD='RootPass123#' \
+              -e MSSQL_SA_PASSWORD='RootPass123!' \
               -e MSSQL_PID="Developer" \
               -p 1433:1433 \
               mcr.microsoft.com/azure-sql-edge
@@ -164,15 +164,15 @@ jobs:
             echo "Starting Azure SQL Edge for Shared DB..."
             docker run -d --name shared_db \
               -e ACCEPT_EULA="Y" \
-              -e MSSQL_SA_PASSWORD='RootPass123#' \
+              -e MSSQL_SA_PASSWORD='RootPass123!' \
               -e MSSQL_PID="Developer" \
               -p 1434:1433 \
               mcr.microsoft.com/azure-sql-edge
           
             # Note: MSSQL requires you to create the databases and users manually after startup using sqlcmd
             sleep 15
-            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "RootPass123#" -Q "CREATE DATABASE WSO2AM_APIMGT_DB; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass'; USE WSO2AM_APIMGT_DB; CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
-            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "RootPass123#" -Q "CREATE DATABASE WSO2AM_COMMON_DB; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass'; USE WSO2AM_COMMON_DB; CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "RootPass123!" -Q "CREATE DATABASE WSO2AM_APIMGT_DB; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass'; USE WSO2AM_APIMGT_DB; CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "RootPass123!" -Q "CREATE DATABASE WSO2AM_COMMON_DB; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass'; USE WSO2AM_COMMON_DB; CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
           fi
 
 
