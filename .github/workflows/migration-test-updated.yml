@@ -100,6 +100,21 @@ jobs:
   prepare-and-migrate:
     needs: update-and-build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - db_type: mysql
+            apim_url: "jdbc:mysql://host.docker.internal:3306/WSO2AM_APIMGT_DB?allowPublicKeyRetrieval=true&useSSL=false"
+            shared_url: "jdbc:mysql://host.docker.internal:3307/WSO2AM_COMMON_DB?allowPublicKeyRetrieval=true&useSSL=false"
+            driver_class: "com.mysql.cj.jdbc.Driver"
+
+          - db_type: mssql
+            apim_url: "jdbc:sqlserver://host.docker.internal:1433;databaseName=WSO2AM_APIMGT_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=WSO2AM_COMMON_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            driver_class: "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+
+
 
     services:
       apim_db:
@@ -131,24 +146,41 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
-
     env:
       # API Manager Database (apim_db)
-      API_MANAGER_DATABASE_TYPE: mysql
-      API_MANAGER_DATABASE_DRIVER: com.mysql.cj.jdbc.Driver
-      API_MANAGER_DATABASE_URL: "jdbc:mysql://host.docker.internal:3306/WSO2AM_APIMGT_DB?allowPublicKeyRetrieval=true&amp;useSSL=false"
+      API_MANAGER_DATABASE_TYPE: ${{ matrix.db_type }}
+      API_MANAGER_DATABASE_DRIVER: ${{ matrix.driver_class }}
+      API_MANAGER_DATABASE_URL: ${{ matrix.apim_url }}
       API_MANAGER_DATABASE_USERNAME: apim_user
       API_MANAGER_DATABASE_PASSWORD: apimpass
       API_MANAGER_DATABASE_VALIDATION_QUERY: SELECT 1
+
       # Shared Database (shared_db)
-      SHARED_DATABASE_TYPE: mysql
-      SHARED_DATABASE_DRIVER: com.mysql.cj.jdbc.Driver
-      SHARED_DATABASE_URL: "jdbc:mysql://host.docker.internal:3307/WSO2AM_COMMON_DB?allowPublicKeyRetrieval=true&amp;useSSL=false"
+      SHARED_DATABASE_TYPE: ${{ matrix.db_type }}
+      SHARED_DATABASE_DRIVER: ${{ matrix.driver_class }}
+      SHARED_DATABASE_URL: ${{ matrix.shared_url }}
       SHARED_DATABASE_USERNAME: shared_user
       SHARED_DATABASE_PASSWORD: sharedpass
       SHARED_DATABASE_VALIDATION_QUERY: SELECT 1
 
+
     steps:
+      - name: Start Database Containers
+        run: |
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            docker run -d --name apim_db -e MYSQL_ROOT_PASSWORD=rootpass -e MYSQL_DATABASE=WSO2AM_APIMGT_DB -e MYSQL_USER=apim_user -e MYSQL_PASSWORD=apimpass -p 3306:3306 mysql:8.0
+            docker run -d --name shared_db -e MYSQL_ROOT_PASSWORD=rootpass -e MYSQL_DATABASE=WSO2AM_COMMON_DB -e MYSQL_USER=shared_user -e MYSQL_PASSWORD=sharedpass -p 3307:3306 mysql:8.0
+          
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            docker run -d --name apim_db -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=rootpass123!" -p 1433:1433 mcr.microsoft.com/mssql/server:2019-latest
+            docker run -d --name shared_db -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=rootpass123!" -p 1434:1433 mcr.microsoft.com/mssql/server:2019-latest
+          
+            # Note: MSSQL requires you to create the databases and users manually after startup using sqlcmd
+            sleep 15
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "rootpass123!" -Q "CREATE DATABASE WSO2AM_APIMGT_DB; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass'; USE WSO2AM_APIMGT_DB; CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "rootpass123!" -Q "CREATE DATABASE WSO2AM_COMMON_DB; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass'; USE WSO2AM_COMMON_DB; CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
+          fi
+
       - name: Checkout master-new-test-framework branch
         uses: actions/checkout@v4
         with:
@@ -200,8 +232,13 @@ jobs:
           JDBC_URL="https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar"
           
           mkdir -p "$REPO_LIB_DIR"
-          wget -q -O mysql-connector-java-8.0.30.jar "$JDBC_URL"
-          mv mysql-connector-java-8.0.30.jar "$REPO_LIB_DIR"
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            wget -q -O mysql-connector-java-8.0.30.jar "https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar"
+            mv mysql-connector-java-8.0.30.jar "$REPO_LIB_DIR"
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            wget -q -O mssql-jdbc-12.4.2.jre11.jar "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.4.2.jre11/mssql-jdbc-12.4.2.jre11.jar"
+            mv mssql-jdbc-12.4.2.jre11.jar "$REPO_LIB_DIR"
+          fi
           echo "JDBC driver added to $REPO_LIB_DIR"
 
       - name: Replace keystore and truststore of distribution
@@ -977,7 +1014,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: migration-test-reports
+          name: migration-test-reports-${{ matrix.db_type }}
           path: |
             all-in-one-apim/modules/integration-v2/tests-integration/**/target/surefire-reports/**
           if-no-files-found: warn
