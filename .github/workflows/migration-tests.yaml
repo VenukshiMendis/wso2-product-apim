@@ -172,33 +172,18 @@ jobs:
             # Note: MSSQL requires you to create the databases and users manually after startup
             sleep 15
             
-            echo "Creating APIM Database and User..."
-            docker exec -i apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' <<EOF
-            CREATE DATABASE apim_db;
-            GO
-            USE apim_db;
-            GO
-            CREATE LOGIN apim_user WITH PASSWORD = 'apimpass';
-            GO
-            CREATE USER apim_user FOR LOGIN apim_user;
-            GO
-            ALTER ROLE db_owner ADD MEMBER apim_user;
-            GO
-            EOF
+            echo "Creating APIM Database and Login..."
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE apim_db; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass';"
+            
+            echo "Mapping APIM User to Database..."
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -Q "CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
     
-            echo "Creating Shared Database and User..."
-            docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' <<EOF
-            CREATE DATABASE shared_db;
-            GO
-            USE shared_db;
-            GO
-            CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass';
-            GO
-            CREATE USER shared_user FOR LOGIN shared_user;
-            GO
-            ALTER ROLE db_owner ADD MEMBER shared_user;
-            GO
-            EOF
+            echo "Creating Shared Database and Login..."
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE shared_db; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass';"
+            
+            echo "Mapping Shared User to Database..."
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -Q "CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
+      
           fi
 
 
