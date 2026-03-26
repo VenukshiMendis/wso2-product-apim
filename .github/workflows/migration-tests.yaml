@@ -409,14 +409,23 @@ jobs:
 
           echo "MySQL databases configured successfully"
 
-      - name: Download APIM 3.2.0 database dumps from Google Drive
+      - name: Verify APIM 3.2.0 database dumps exist
         run: |
-          mkdir -p .github/WORKFLOW_ARTIFACTS/DB_DUMPS
-          echo "Using checked-in APIM 3.2.0 DB dumps from .github/WORKFLOW_ARTIFACTS/DB_DUMPS"
-          # Verify files exist
-          ls -lh .github/WORKFLOW_ARTIFACTS/DB_DUMPS/
-          test -f .github/WORKFLOW_ARTIFACTS/DB_DUMPS/apim_db_320_dump.sql
-          test -f .github/WORKFLOW_ARTIFACTS/DB_DUMPS/shared_db_320_dump.sql
+          # Determine the correct folder based on the matrix DB type
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MYSQL"
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MSSQL"
+          fi
+          
+          echo "Using checked-in APIM 3.2.0 DB dumps from $DB_DIR"
+          
+          # List the files for debugging purposes
+          ls -lh $DB_DIR/
+          
+          # Hard fail the workflow if the files are missing
+          test -f $DB_DIR/apim_db_320_dump.sql
+          test -f $DB_DIR/shared_db_320_dump.sql
 
       - name: Restore APIM DB dump (3.2.0)
         run: |
