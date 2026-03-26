@@ -99,17 +99,20 @@ jobs:
 
   prepare-and-migrate:
     needs: update-and-build
+    name: Database Migration - ${{ matrix.display_name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - db_type: mysql
+            display_name: "MySQL"
             apim_url: "jdbc:mysql://host.docker.internal:3306/WSO2AM_APIMGT_DB?allowPublicKeyRetrieval=true&useSSL=false"
             shared_url: "jdbc:mysql://host.docker.internal:3307/WSO2AM_COMMON_DB?allowPublicKeyRetrieval=true&useSSL=false"
             driver_class: "com.mysql.cj.jdbc.Driver"
 
           - db_type: mssql
+            display_name: "MSSQL"
             apim_url: "jdbc:sqlserver://host.docker.internal:1433;databaseName=WSO2AM_APIMGT_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
             shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=WSO2AM_COMMON_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
             driver_class: "com.microsoft.sqlserver.jdbc.SQLServerDriver"
