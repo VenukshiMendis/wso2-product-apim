@@ -153,7 +153,7 @@ jobs:
             echo "Starting Azure SQL Edge for APIM DB..."
             docker run -d --name apim_db \
               -e ACCEPT_EULA="Y" \
-              -e MSSQL_SA_PASSWORD="RootPass123!" \
+              -e MSSQL_SA_PASSWORD='RootPass123#' \
               -e MSSQL_PID="Developer" \
               -p 1433:1433 \
               mcr.microsoft.com/azure-sql-edge
@@ -161,10 +161,8 @@ jobs:
             echo "Starting Azure SQL Edge for Shared DB..."
             docker run -d --name shared_db \
               -e ACCEPT_EULA="Y" \
-              -e MSSQL_SA_PASSWORD="RootPass123!" \
+              -e MSSQL_SA_PASSWORD='RootPass123#' \
               -e MSSQL_PID="Developer" \
-              -p 1434:1433 \
-              mcr.microsoft.com/azure-sql-edge
           
             # Note: MSSQL requires you to create the databases and users manually after startup using sqlcmd
             sleep 15
