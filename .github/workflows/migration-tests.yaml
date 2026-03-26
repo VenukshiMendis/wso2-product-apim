@@ -173,13 +173,13 @@ jobs:
             sleep 15
             
             echo "Creating APIM Database and Login..."
-            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE apim_db; CREATE LOGIN apim_user WITH PASSWORD = 'apimPass123#';"
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE apim_db; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass'; CHECK_POLICY = OFF;"
             
             echo "Mapping APIM User to Database..."
             docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -Q "CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
     
             echo "Creating Shared Database and Login..."
-            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE shared_db; CREATE LOGIN shared_user WITH PASSWORD = 'sharedPass123#';"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE shared_db; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass'; CHECK_POLICY = OFF;"
             
             echo "Mapping Shared User to Database..."
             docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -Q "CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
