@@ -51,51 +51,51 @@ jobs:
           echo "LATEST_CARBON_APIMGT_VERSION=$LATEST" >> $GITHUB_ENV
           echo "version=$LATEST" >> $GITHUB_OUTPUT
 
-#      - name: Read current carbon-apimgt version from Maven
-#        working-directory: all-in-one-apim
-#        run: |
-#          CURRENT=$(mvn -q \
-#            -Dexpression=${CARBON_APIMGT_VERSION_PROPERTY} \
-#            -DforceStdout \
-#            help:evaluate 2>/dev/null || true)
-#
-#          echo "Current carbon-apimgt version: $CURRENT"
-#          echo "CURRENT_CARBON_APIMGT_VERSION=$CURRENT" >> $GITHUB_ENV
-#
-#      - name: Update pom.xml with latest carbon-apimgt version
-#        if: env.LATEST_CARBON_APIMGT_VERSION != '' && env.LATEST_CARBON_APIMGT_VERSION != env.CURRENT_CARBON_APIMGT_VERSION
-#        working-directory: all-in-one-apim
-#        run: |
-#          echo "Updating ${CARBON_APIMGT_VERSION_PROPERTY} from ${CURRENT_CARBON_APIMGT_VERSION} to ${LATEST_CARBON_APIMGT_VERSION}"
-#
-#          mvn -B \
-#            org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
-#            -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
-#            -DnewVersion=${LATEST_CARBON_APIMGT_VERSION} \
-#            -DgenerateBackupPoms=false
-#
-#      - name: Build APIM distribution
-#        working-directory: all-in-one-apim
-#        run: |
-#          mvn -B clean install -Dmaven.test.skip=true
-#
-#      - name: Find built APIM distribution
-#        id: find_dist
-#        run: |
-#          DIST_PATH=$(find all-in-one-apim/modules/distribution/product/target \
-#            -maxdepth 1 -type f -name "wso2am-*-SNAPSHOT.zip" | head -n1)
-#          if [ -z "$DIST_PATH" ]; then
-#            echo "Distribution zip (wso2am-*-SNAPSHOT.zip) not found"
-#            exit 1
-#          fi
-#          echo "dist_path=$DIST_PATH" >> "$GITHUB_OUTPUT"
-#
-#      - name: Upload APIM distribution artifact
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: apim-distribution
-#          path: ${{ steps.find_dist.outputs.dist_path }}
-#          if-no-files-found: error
+      - name: Read current carbon-apimgt version from Maven
+        working-directory: all-in-one-apim
+        run: |
+          CURRENT=$(mvn -q \
+            -Dexpression=${CARBON_APIMGT_VERSION_PROPERTY} \
+            -DforceStdout \
+            help:evaluate 2>/dev/null || true)
+
+          echo "Current carbon-apimgt version: $CURRENT"
+          echo "CURRENT_CARBON_APIMGT_VERSION=$CURRENT" >> $GITHUB_ENV
+
+      - name: Update pom.xml with latest carbon-apimgt version
+        if: env.LATEST_CARBON_APIMGT_VERSION != '' && env.LATEST_CARBON_APIMGT_VERSION != env.CURRENT_CARBON_APIMGT_VERSION
+        working-directory: all-in-one-apim
+        run: |
+          echo "Updating ${CARBON_APIMGT_VERSION_PROPERTY} from ${CURRENT_CARBON_APIMGT_VERSION} to ${LATEST_CARBON_APIMGT_VERSION}"
+
+          mvn -B \
+            org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
+            -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
+            -DnewVersion=${LATEST_CARBON_APIMGT_VERSION} \
+            -DgenerateBackupPoms=false
+
+      - name: Build APIM distribution
+        working-directory: all-in-one-apim
+        run: |
+          mvn -B clean install -Dmaven.test.skip=true
+
+      - name: Find built APIM distribution
+        id: find_dist
+        run: |
+          DIST_PATH=$(find all-in-one-apim/modules/distribution/product/target \
+            -maxdepth 1 -type f -name "wso2am-*-SNAPSHOT.zip" | head -n1)
+          if [ -z "$DIST_PATH" ]; then
+            echo "Distribution zip (wso2am-*-SNAPSHOT.zip) not found"
+            exit 1
+          fi
+          echo "dist_path=$DIST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APIM distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apim-distribution
+          path: ${{ steps.find_dist.outputs.dist_path }}
+          if-no-files-found: error
 
   prepare-and-migrate:
     needs: update-and-build
