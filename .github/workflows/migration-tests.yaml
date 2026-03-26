@@ -113,8 +113,8 @@ jobs:
 
           - db_type: mssql
             display_name: "MSSQL"
-            apim_url: "jdbc:sqlserver://host.docker.internal:1433;databaseName=WSO2AM_APIMGT_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
-            shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=WSO2AM_COMMON_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            apim_url: "jdbc:sqlserver://host.docker.internal:1433;databaseName=apim_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=shared_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
             driver_class: "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 
     env:
@@ -378,36 +378,60 @@ jobs:
 
       - name: Wait for DBs to be ready
         run: |
-          echo "Waiting for databases..."
-          for i in {1..60}; do
-            if mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -prootpass --silent 2>/dev/null; then
-              echo "apim_db is ready"
-              break
-            fi
-            echo "Waiting for apim_db... ($i/60)"
-            sleep 2
-          done
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            echo "Waiting for MySQL databases..."
+            for i in {1..60}; do
+              if mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -prootpass --silent 2>/dev/null; then
+                echo "apim_db is ready"
+                break
+              fi
+              echo "Waiting for apim_db... ($i/60)"
+              sleep 2
+            done
           
-          for i in {1..60}; do
-            if mysqladmin ping -h 127.0.0.1 -P 3307 -uroot -prootpass --silent 2>/dev/null; then
-              echo "shared_db is ready"
-              break
-            fi
-            echo "Waiting for shared_db... ($i/60)"
-            sleep 2
-          done
+            for i in {1..60}; do
+              if mysqladmin ping -h 127.0.0.1 -P 3307 -uroot -prootpass --silent 2>/dev/null; then
+                echo "shared_db is ready"
+                break
+              fi
+              echo "Waiting for shared_db... ($i/60)"
+              sleep 2
+            done
           
-          # Configure APIM database
-          mysql -h 127.0.0.1 -P 3306 -uroot -prootpass <<EOF
-          ALTER DATABASE WSO2AM_APIMGT_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;
-          EOF
-
-          # Configure Shared database
-          mysql -h 127.0.0.1 -P 3307 -uroot -prootpass <<EOF
-          ALTER DATABASE WSO2AM_COMMON_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;
-          EOF
-
-          echo "MySQL databases configured successfully"
+            # Configure APIM database
+            mysql -h 127.0.0.1 -P 3306 -uroot -prootpass <<EOF
+            ALTER DATABASE apim_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;
+            EOF
+          
+            # Configure Shared database
+            mysql -h 127.0.0.1 -P 3307 -uroot -prootpass <<EOF
+            ALTER DATABASE shared_db CHARACTER SET latin1 COLLATE latin1_swedish_ci;
+            EOF
+          
+            echo "MySQL databases configured successfully"
+          
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            echo "Waiting for MSSQL databases..."
+            for i in {1..60}; do
+              if docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" &> /dev/null; then
+                echo "apim_db is ready"
+                break
+              fi
+              echo "Waiting for apim_db... ($i/60)"
+              sleep 2
+            done
+          
+            for i in {1..60}; do
+              if docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" &> /dev/null; then
+                echo "shared_db is ready"
+                break
+              fi
+              echo "Waiting for shared_db... ($i/60)"
+              sleep 2
+            done
+          
+            echo "MSSQL databases are responding successfully!"
+          fi
 
       - name: Verify APIM 3.2.0 database dumps exist
         run: |
