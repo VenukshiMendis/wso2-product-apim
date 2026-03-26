@@ -429,39 +429,51 @@ jobs:
 
       - name: Restore APIM DB dump (3.2.0)
         run: |
-          APIM_DB_CONTAINER=$(docker ps \
-            --filter "ancestor=mysql:8.0" \
-            --filter "publish=3306" \
-            --format "{{.ID}}" | head -n 1)
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MYSQL/apim_db_320_dump.sql"
+            echo "Restoring MySQL APIM dump..."
           
-          echo "APIM DB container: ${APIM_DB_CONTAINER}"
+            # Copy SQL inside container
+            docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
           
-          test -f .github/WORKFLOW_ARTIFACTS/DB_DUMPS/apim_db_320_dump.sql
+            # Restore dump using mysql client
+            docker exec -i apim_db bash -c "cat /apim_db_dump.sql | mysql -uapim_user -papimpass WSO2AM_APIMGT_DB"
           
-          # Copy SQL inside container
-          docker cp .github/WORKFLOW_ARTIFACTS/DB_DUMPS/apim_db_320_dump.sql ${APIM_DB_CONTAINER}:/apim_db_dump.sql
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MSSQL/apim_db_320_dump.sql"
+            echo "Restoring MSSQL APIM dump..."
           
-          # Restore dump
-          docker exec -i ${APIM_DB_CONTAINER} \
-            bash -c "cat /apim_db_dump.sql | mysql -uapim_user -papimpass WSO2AM_APIMGT_DB"
+            # Copy SQL inside container
+            docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
+          
+            # Restore dump using sqlcmd (-i flag specifies the input file)
+            docker exec -i apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -C -i /apim_db_dump.sql
+          fi
           
           echo "APIM DB dump restored successfully"
 
       - name: Restore Shared DB dump (3.2.0)
         run: |
-          SHARED_DB_CONTAINER=$(docker ps \
-            --filter "ancestor=mysql:8.0" \
-            --filter "publish=3307" \
-            --format "{{.ID}}" | head -n 1)
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MYSQL/shared_db_320_dump.sql"
+            echo "Restoring MySQL Shared dump from $DUMP_FILE..."
           
-          echo "Shared DB container: ${SHARED_DB_CONTAINER}"
+            # Copy SQL inside container
+            docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
           
-          test -f .github/WORKFLOW_ARTIFACTS/DB_DUMPS/shared_db_320_dump.sql
+            # Restore dump
+            docker exec -i shared_db bash -c "cat /shared_db_dump.sql | mysql -ushared_user -psharedpass WSO2AM_COMMON_DB"
           
-          docker cp .github/WORKFLOW_ARTIFACTS/DB_DUMPS/shared_db_320_dump.sql ${SHARED_DB_CONTAINER}:/shared_db_dump.sql
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MSSQL/shared_db_320_dump.sql"
+            echo "Restoring MSSQL Shared dump from $DUMP_FILE..."
           
-          docker exec -i ${SHARED_DB_CONTAINER} \
-            bash -c "cat /shared_db_dump.sql | mysql -ushared_user -psharedpass WSO2AM_COMMON_DB"
+            # Copy SQL inside container
+            docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
+          
+            # Restore dump using sqlcmd
+            docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_dump.sql
+          fi
           
           echo "Shared DB dump restored successfully"
 
