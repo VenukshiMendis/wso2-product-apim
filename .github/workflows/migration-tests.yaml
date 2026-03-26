@@ -107,8 +107,8 @@ jobs:
         include:
           - db_type: mysql
             display_name: "MySQL"
-            apim_url: "jdbc:mysql://host.docker.internal:3306/WSO2AM_APIMGT_DB?allowPublicKeyRetrieval=true&useSSL=false"
-            shared_url: "jdbc:mysql://host.docker.internal:3307/WSO2AM_COMMON_DB?allowPublicKeyRetrieval=true&useSSL=false"
+            apim_url: "jdbc:mysql://host.docker.internal:3306/WSO2AM_APIMGT_DB?allowPublicKeyRetrieval=true&amp;useSSL=false"
+            shared_url: "jdbc:mysql://host.docker.internal:3307/WSO2AM_COMMON_DB?allowPublicKeyRetrieval=true&amp;useSSL=false"
             driver_class: "com.mysql.cj.jdbc.Driver"
 
           - db_type: mssql
