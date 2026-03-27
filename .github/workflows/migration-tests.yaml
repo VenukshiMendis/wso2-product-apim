@@ -119,8 +119,8 @@ jobs:
 
           - db_type: postgre
             display_name: "PostgreSQL"
-            apim_url: "jdbc:postgresql://localhost:5432/apim_db"
-            shared_url: "jdbc:postgresql://localhost:5433/shared_db"
+            apim_url: "jdbc:postgresql://host.docker.internal:5432/apim_db"
+            shared_url: "jdbc:postgresql://host.docker.internal:5433/shared_db"
             driver_class: "org.postgresql.Driver"
 
     env:
@@ -473,6 +473,14 @@ jobs:
             done
           
             echo "PostgreSQL databases are responding successfully!"
+            # --- WSO2 REQUIRED POSTGRESQL PERMISSIONS ---
+            echo "Granting SUPERUSER permission to apim_user..."
+            docker exec -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -c "ALTER USER apim_user WITH SUPERUSER;"
+          
+            echo "Granting SUPERUSER permission to shared_user..."
+            docker exec -e PGPASSWORD=sharedpass shared_db psql -U shared_user -d shared_db -c "ALTER USER shared_user WITH SUPERUSER;"
+          
+            echo "PostgreSQL setup fully complete!"
           fi
 
       - name: Verify APIM 3.2.0 database dumps exist
@@ -980,6 +988,14 @@ jobs:
           
           echo "✓ Found APIM migration jar at: $APIM_MIGRATION_JAR"
           
+          # Add the Postgres specific flag to shared db url if db_type is postgre
+          ACTUAL_SHARED_URL="$SHARED_DATABASE_URL"
+          if [ "${{ matrix.db_type }}" == "postgre" ]; then
+            echo "Applying PostgreSQL migration requirement: preparedStatementCacheQueries=0"
+            # This appends the flag to the end of your existing URL
+            ACTUAL_SHARED_URL="${SHARED_DATABASE_URL}?preparedStatementCacheQueries=0"
+          fi
+          
           # Start container in detached mode
           CONTAINER_ID=$(docker run -d \
             --entrypoint "" \
@@ -993,7 +1009,7 @@ jobs:
             -e API_MANAGER_DATABASE_VALIDATION_QUERY="$API_MANAGER_DATABASE_VALIDATION_QUERY" \
             -e SHARED_DATABASE_TYPE="$SHARED_DATABASE_TYPE" \
             -e SHARED_DATABASE_DRIVER="$SHARED_DATABASE_DRIVER" \
-            -e SHARED_DATABASE_URL="$SHARED_DATABASE_URL" \
+            -e SHARED_DATABASE_URL="$ACTUAL_SHARED_URL" \
             -e SHARED_DATABASE_USERNAME="$SHARED_DATABASE_USERNAME" \
             -e SHARED_DATABASE_PASSWORD="$SHARED_DATABASE_PASSWORD" \
             -e SHARED_DATABASE_VALIDATION_QUERY="$SHARED_DATABASE_VALIDATION_QUERY" \
