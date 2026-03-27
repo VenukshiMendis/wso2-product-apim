@@ -117,6 +117,12 @@ jobs:
             shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=shared_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
             driver_class: "com.microsoft.sqlserver.jdbc.SQLServerDriver"
 
+          - db_type: postgre
+            display_name: "PostgreSQL"
+            apim_url: "jdbc:postgresql://localhost:5432/apim_db"
+            shared_url: "jdbc:postgresql://localhost:5433/shared_db"
+            driver_class: "org.postgresql.Driver"
+
     env:
       # API Manager Database (apim_db)
       API_MANAGER_DATABASE_TYPE: ${{ matrix.db_type }}
@@ -183,7 +189,21 @@ jobs:
             
             echo "Mapping Shared User to Database..."
             docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -Q "CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
-      
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            echo "Starting PostgreSQL for APIM DB..."
+            docker run -d --name apim_db \
+              -e POSTGRES_DB=apim_db \
+              -e POSTGRES_USER=apim_user \
+              -e POSTGRES_PASSWORD=apimpass \
+              -p 5432:5432 postgres:14
+            
+            echo "Starting PostgreSQL for Shared DB..."
+            docker run -d --name shared_db \
+              -e POSTGRES_DB=shared_db \
+              -e POSTGRES_USER=shared_user \
+              -e POSTGRES_PASSWORD=sharedpass \
+              -p 5433:5432 postgres:14
           fi
 
 
@@ -1166,22 +1186,24 @@ jobs:
             exit 1
           fi
 
-          export DOCKER_BUILDKIT=1 
+          #  Replace '&amp;' with a standard '&' specifically for Maven
+          CLEAN_SHARED_URL="${SHARED_DATABASE_URL//&amp;/&}"
+          CLEAN_APIM_URL="${API_MANAGER_DATABASE_URL//&amp;/&}"
           
           echo ""
           echo "=== Database Configuration Passed to Maven ==="
           echo "Shared DB Type:   $SHARED_DATABASE_TYPE"
           echo "Shared DB Driver: $SHARED_DATABASE_DRIVER"
-          echo "Shared DB URL:    $SHARED_DATABASE_URL"
+          echo "Shared DB URL:    $CLEAN_SHARED_URL"
           echo "Shared DB User:   $SHARED_DATABASE_USERNAME"
           echo "----------------------------------------------"
           echo "APIM DB Type:     $API_MANAGER_DATABASE_TYPE"
           echo "APIM DB Driver:   $API_MANAGER_DATABASE_DRIVER"
-          echo "APIM DB URL:      $API_MANAGER_DATABASE_URL"
+          echo "APIM DB URL:      $CLEAN_APIM_URL"
           echo "APIM DB User:     $API_MANAGER_DATABASE_USERNAME"
           echo "=============================================="
           echo ""
-        
+
           mvn -B clean install \
             -Pmigration \
             -DskipBenchMarkTest=true \
@@ -1189,12 +1211,12 @@ jobs:
             -Ddocker.extra.hosts="--add-host=host.docker.internal:host-gateway" \
             -Dshared.database.type="$SHARED_DATABASE_TYPE" \
             -Dshared.database.driver="$SHARED_DATABASE_DRIVER" \
-            -Dshared.database.url="$SHARED_DATABASE_URL" \
+            -Dshared.database.url="$CLEAN_SHARED_URL" \
             -Dshared.database.username="$SHARED_DATABASE_USERNAME" \
             -Dshared.database.password="$SHARED_DATABASE_PASSWORD" \
             -Dapim.database.type="$API_MANAGER_DATABASE_TYPE" \
             -Dapim.database.driver="$API_MANAGER_DATABASE_DRIVER" \
-            -Dapim.database.url="$API_MANAGER_DATABASE_URL" \
+            -Dapim.database.url="$CLEAN_APIM_URL" \
             -Dapim.database.username="$API_MANAGER_DATABASE_USERNAME" \
             -Dapim.database.password="$API_MANAGER_DATABASE_PASSWORD"
 
