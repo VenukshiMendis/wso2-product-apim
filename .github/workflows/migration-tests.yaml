@@ -146,8 +146,8 @@ jobs:
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
           
             #   Replace '&amp;' with a standard '&' specifically for Maven
-            CLEAN_SHARED_URL_1="${SHARED_DATABASE_URL//&amp;/&}"
-            CLEAN_APIM_URL_1="${API_MANAGER_DATABASE_URL//&amp;/&}" 
+            CLEAN_SHARED_URL_1=$(echo "$SHARED_DATABASE_URL" | sed 's/&amp;/\&/g')
+            CLEAN_APIM_URL_1=$(echo "$API_MANAGER_DATABASE_URL" | sed 's/&amp;/\&/g')
             
             echo "Shared DB URL:    $CLEAN_SHARED_URL_1"
             echo "APIM DB URL:     $CLEAN_APIM_URL_1"
