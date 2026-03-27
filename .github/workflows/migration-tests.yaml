@@ -99,7 +99,7 @@ jobs:
 
   prepare-and-migrate:
     needs: update-and-build
-    name: Database Migration - ${{ matrix.display_name }}
+    name: prepare-and-migrate - ${{ matrix.display_name }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -497,23 +497,32 @@ jobs:
           
           echo "Shared DB dump restored successfully"
 
-      - name: Run MySQL script for shared_db
+      - name: Run DB script on shared_db to add missing registry indices
         run: |
-          SHARED_DB_CONTAINER=$(docker ps \
-            --filter "ancestor=mysql:8.0" \
-            --filter "publish=3307" \
-            --format "{{.ID}}" | head -n 1)
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/MySQL.sql"
+            echo "Running MySQL script on shared_db container..."
           
-          echo "Using checked-in MySQL script for shared_db from .github/WORKFLOW_ARTIFACTS/DB_SCRIPTS"
-          mkdir -p .github/WORKFLOW_ARTIFACTS/DB_SCRIPTS
-          test -f .github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/shared_db_script.sql
+            # Verify file exists
+            test -f "$SCRIPT_FILE"
           
-          echo "Running MySQL script on shared_db container..."
-          docker cp .github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/shared_db_script.sql ${SHARED_DB_CONTAINER}:/shared_db_script.sql
-          docker exec -i ${SHARED_DB_CONTAINER} \
-            bash -c "cat /shared_db_script.sql | mysql -ushared_user -psharedpass WSO2AM_COMMON_DB"
+            # Copy and execute
+            docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
+            docker exec -i shared_db bash -c "cat /shared_db_script.sql | mysql -ushared_user -psharedpass shared_db"
           
-          echo "MySQL script executed successfully"
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/MSSQL.sql"
+            echo "Running MSSQL script on shared_db container..."
+          
+            # Verify file exists
+            test -f "$SCRIPT_FILE"
+          
+            # Copy and execute using sqlcmd
+            docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
+            docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_script.sql
+          fi
+          
+          echo "DB script executed successfully"
 
       - name: Build Docker image for APIM
         env:
