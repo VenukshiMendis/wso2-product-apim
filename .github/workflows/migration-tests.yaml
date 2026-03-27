@@ -1180,10 +1180,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-test-server-logs
+          name: integration-test-server-logs-${{ matrix.db_type }}
           path: |
             all-in-one-apim/modules/integration-v2/tests-integration/**/target/**/repository/logs/
-            if-no-files-found: warn
+          if-no-files-found: warn
 
   version-bump:
     needs: [update-and-build, prepare-and-migrate]
