@@ -508,7 +508,7 @@ jobs:
           
             # Copy and execute
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
-            docker exec -i shared_db bash -c "cat /shared_db_script.sql | mysql -ushared_user -psharedpass shared_db"
+            docker exec -i shared_db bash -c "cat /shared_db_script.sql | mysql -ushared_user -psharedpass WSO2AM_COMMON_DB"
           
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
             SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/MSSQL.sql"
