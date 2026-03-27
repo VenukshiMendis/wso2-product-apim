@@ -264,6 +264,9 @@ jobs:
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
             wget -q -O mssql-jdbc-12.4.2.jre11.jar "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.4.2.jre11/mssql-jdbc-12.4.2.jre11.jar"
             mv mssql-jdbc-12.4.2.jre11.jar "$REPO_LIB_DIR"
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            wget -q -O postgresql-42.7.8.jar "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.8/postgresql-42.7.8.jar"
+            mv postgresql-42.7.8.jar "$REPO_LIB_DIR"
           fi
           echo "JDBC driver added to $REPO_LIB_DIR"
 
@@ -447,6 +450,29 @@ jobs:
             done
           
             echo "MSSQL databases are responding successfully!"
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            echo "Waiting for PostgreSQL databases..."
+            for i in {1..60}; do
+              # pg_isready is a built-in postgres tool to check connection status
+              if docker exec apim_db pg_isready -U apim_user -d apim_db > /dev/null 2>&1; then
+                echo "apim_db is ready"
+                break
+              fi
+              echo "Waiting for apim_db... ($i/60)"
+              sleep 2
+            done
+          
+            for i in {1..60}; do
+              if docker exec shared_db pg_isready -U shared_user -d shared_db > /dev/null 2>&1; then
+                echo "shared_db is ready"
+                break
+              fi
+              echo "Waiting for shared_db... ($i/60)"
+              sleep 2
+            done
+          
+            echo "PostgreSQL databases are responding successfully!"
           fi
 
       - name: Verify APIM 3.2.0 database dumps exist
@@ -456,6 +482,8 @@ jobs:
             DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MYSQL"
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
             DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MSSQL"
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/POSTGRESQL"
           fi
           
           echo "Using checked-in APIM 3.2.0 DB dumps from $DB_DIR"
