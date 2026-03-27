@@ -722,7 +722,7 @@ jobs:
       - name: APIM Migration - Download and Setup
         env:
 #         APIM_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
-          APIM_MIGRATION_S3_URL: "https://drive.google.com/uc?export=download&id=1S_NcGvIkjJ3Rofo8yPXbF4p4likSIypd"
+          APIM_MIGRATION_S3_URL: "https://drive.google.com/uc?export=download&id=1b2CE-vHjN3lk1591j5pLKGJ8UUTFAM0-"
         run: |
           echo "=== Step 3: APIM Migration Setup ==="
           
