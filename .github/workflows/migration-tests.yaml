@@ -1106,20 +1106,26 @@ jobs:
               > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
           
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
-            echo "Installing mssql-scripter on the GitHub runner..."
-            # pipx is the safest way to install Python CLI tools on modern Ubuntu runners
-            pipx install mssql-scripter
+            echo "Installing mssql-scripter inside a virtual environment..."
           
-            # Ensure the tool is available in the path
-            export PATH="$PATH:$HOME/.local/bin"
+            # Create and activate a virtual environment
+            python3 -m venv /tmp/mssql_env
+            source /tmp/mssql_env/bin/activate
+          
+            # Install inside the venv
+            pip install mssql-scripter
           
             echo "Dumping MSSQL apim_db to .sql format..."
-            mssql-scripter -S localhost,1433 -U sa -P 'RootPass123!' -d apim_db --schema-and-data \
+            # Run the module directly via python so it doesn't get confused by the wrapper bug
+            python -m mssqlscripter -S localhost,1433 -U sa -P 'RootPass123!' -d apim_db --schema-and-data \
               > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/apim_db_after_migration.sql
           
             echo "Dumping MSSQL shared_db to .sql format..."
-            mssql-scripter -S localhost,1434 -U sa -P 'RootPass123!' -d shared_db --schema-and-data \
+            python -m mssqlscripter -S localhost,1434 -U sa -P 'RootPass123!' -d shared_db --schema-and-data \
               > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
+          
+            # Deactivate the venv just to be clean
+            deactivate
           fi
           
           ls -lh .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
