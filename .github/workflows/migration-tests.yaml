@@ -145,14 +145,6 @@ jobs:
         run: |
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
           
-            #   Replace '&amp;' with a standard '&' specifically for Maven
-            CLEAN_SHARED_URL_1=$(echo "$SHARED_DATABASE_URL" | sed 's/&amp;/\&/g')
-            CLEAN_APIM_URL_1=$(echo "$API_MANAGER_DATABASE_URL" | sed 's/&amp;/\&/g')
-            
-            echo "Shared DB URL:    $CLEAN_SHARED_URL_1"
-            echo "APIM DB URL:     $CLEAN_APIM_URL_1"
-          
-          
             docker run -d --name apim_db \
               -e MYSQL_ROOT_PASSWORD=rootpass \
               -e MYSQL_DATABASE=WSO2AM_APIMGT_DB \
@@ -1279,9 +1271,10 @@ jobs:
             exit 1
           fi
 
-          #  Replace '&amp;' with a standard '&' specifically for Maven
-          CLEAN_SHARED_URL="${SHARED_DATABASE_URL//&amp;/&}"
-          CLEAN_APIM_URL="${API_MANAGER_DATABASE_URL//&amp;/&}"
+          #  Replace '&amp;' with a standard '&' specifically for Maven 
+          CLEAN_SHARED_URL=$(echo "$SHARED_DATABASE_URL" | sed 's/&amp;/\&/g')
+          CLEAN_APIM_URL=$(echo "$API_MANAGER_DATABASE_URL" | sed 's/&amp;/\&/g')
+        
           
           echo ""
           echo "=== Database Configuration Passed to Maven ==="
