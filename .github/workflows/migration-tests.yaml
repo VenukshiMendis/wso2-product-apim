@@ -1150,10 +1150,12 @@ jobs:
           DOCKER_BUILDKIT: 1
         run: |
           echo "=== Starting Integration Tests on Migrated Databases ==="
-          echo "Running tests against databases that have been migrated from APIM 3.2.0"
+          echo "Running tests against ${{ matrix.display_name }} databases that have been migrated from APIM 3.2.0"
+          
           echo "Maven will start the HTTP server automatically via pom.xml"
           echo "Using --add-host=host.docker.internal:host-gateway for Linux compatibility"
           echo ""
+          
           echo "=== Final file check before Maven ==="
           ZIP_PATH=$(find ../distribution/product/target -maxdepth 1 -name "wso2am-*-SNAPSHOT.zip" 2>/dev/null | head -n1)
           if [ -n "$ZIP_PATH" ] && [ -f "$ZIP_PATH" ]; then
@@ -1164,12 +1166,37 @@ jobs:
             exit 1
           fi
 
-          export DOCKER_BUILDKIT=1
+          export DOCKER_BUILDKIT=1 
+          
+          echo ""
+          echo "=== Database Configuration Passed to Maven ==="
+          echo "Shared DB Type:   $SHARED_DATABASE_TYPE"
+          echo "Shared DB Driver: $SHARED_DATABASE_DRIVER"
+          echo "Shared DB URL:    $SHARED_DATABASE_URL"
+          echo "Shared DB User:   $SHARED_DATABASE_USERNAME"
+          echo "----------------------------------------------"
+          echo "APIM DB Type:     $API_MANAGER_DATABASE_TYPE"
+          echo "APIM DB Driver:   $API_MANAGER_DATABASE_DRIVER"
+          echo "APIM DB URL:      $API_MANAGER_DATABASE_URL"
+          echo "APIM DB User:     $API_MANAGER_DATABASE_USERNAME"
+          echo "=============================================="
+          echo ""
+        
           mvn -B clean install \
             -Pmigration \
             -DskipBenchMarkTest=true \
             -DskipRestartTests=true \
-            -Ddocker.extra.hosts="--add-host=host.docker.internal:host-gateway"
+            -Ddocker.extra.hosts="--add-host=host.docker.internal:host-gateway" \
+            -Dshared.database.type="$SHARED_DATABASE_TYPE" \
+            -Dshared.database.driver="$SHARED_DATABASE_DRIVER" \
+            -Dshared.database.url="$SHARED_DATABASE_URL" \
+            -Dshared.database.username="$SHARED_DATABASE_USERNAME" \
+            -Dshared.database.password="$SHARED_DATABASE_PASSWORD" \
+            -Dapim.database.type="$API_MANAGER_DATABASE_TYPE" \
+            -Dapim.database.driver="$API_MANAGER_DATABASE_DRIVER" \
+            -Dapim.database.url="$API_MANAGER_DATABASE_URL" \
+            -Dapim.database.username="$API_MANAGER_DATABASE_USERNAME" \
+            -Dapim.database.password="$API_MANAGER_DATABASE_PASSWORD"
 
       - name: Upload test reports
         if: always()
