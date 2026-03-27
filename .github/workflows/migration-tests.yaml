@@ -516,6 +516,16 @@ jobs:
           
             # Restore dump using sqlcmd (-i flag specifies the input file)
             docker exec -i apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -C -i /apim_db_dump.sql
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/POSTGRESQL/apim_db_320_dump.sql"
+            echo "Restoring PostgreSQL APIM dump..."
+          
+            # Copy SQL inside container
+            docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
+          
+            # Restore dump using psql
+            docker exec -i -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -f /apim_db_dump.sql
           fi
           
           echo "APIM DB dump restored successfully"
@@ -541,6 +551,16 @@ jobs:
           
             # Restore dump using sqlcmd
             docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_dump.sql
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/POSTGRESQL/shared_db_320_dump.sql"
+            echo "Restoring PostgreSQL Shared dump from $DUMP_FILE..."
+          
+            # Copy SQL inside container
+            docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
+          
+            # Restore dump using psql
+            docker exec -i -e PGPASSWORD=sharedpass shared_db psql -U shared_user -d shared_db -f /shared_db_dump.sql
           fi
           
           echo "Shared DB dump restored successfully"
@@ -568,6 +588,17 @@ jobs:
             # Copy and execute using sqlcmd
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
             docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_script.sql
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/PostgreSQL.sql"
+            echo "Running PostgreSQL script on shared_db container..."
+          
+            # Verify file exists
+            test -f "$SCRIPT_FILE"
+          
+            # Copy and execute using psql
+            docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
+            docker exec -i -e PGPASSWORD=sharedpass shared_db psql -U shared_user -d shared_db -f /shared_db_script.sql
           fi
           
           echo "DB script executed successfully"
@@ -1174,6 +1205,15 @@ jobs:
           
             # Deactivate the venv just to be clean
             deactivate
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            echo "Dumping PostgreSQL apim_db..."
+            docker exec -e PGPASSWORD=apimpass apim_db pg_dump -U apim_user -d apim_db \
+              > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/apim_db_after_migration.sql
+
+            echo "Dumping PostgreSQL shared_db..."
+            docker exec -e PGPASSWORD=sharedpass shared_db pg_dump -U shared_user -d shared_db \
+              > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
           fi
           
           ls -lh .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
