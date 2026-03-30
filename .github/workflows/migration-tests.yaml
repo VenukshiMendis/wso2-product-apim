@@ -452,6 +452,10 @@ jobs:
           
             echo "MSSQL databases are responding successfully!"
           
+            echo "Applying MSSQL concurrency fix..."
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE apim_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE shared_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+          
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             echo "Waiting for PostgreSQL databases..."
             for i in {1..60}; do
@@ -474,6 +478,7 @@ jobs:
             done
           
             echo "PostgreSQL databases are responding successfully!"
+            
             # --- WSO2 REQUIRED POSTGRESQL PERMISSIONS ---
             echo "Granting SUPERUSER permission to apim_user..."
             docker exec -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -c "ALTER USER apim_user WITH SUPERUSER;"
