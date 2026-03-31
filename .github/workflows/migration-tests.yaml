@@ -536,26 +536,39 @@ jobs:
             echo "PostgreSQL setup fully complete!"
           
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            echo "Waiting for Oracle databases to accept connections (this takes a minute)..."
+            echo "Waiting for Oracle databases to accept connections (this can take 5-10 minutes on CI)..."
           
             # Wait for apim_db
-            for i in {1..120}; do
-              if docker logs apim_db | grep -q "DATABASE IS READY TO USE"; then
+            for i in {1..60}; do
+              # Ping the database using sqlplus to see if it's actually accepting queries
+              if docker exec apim_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass as sysdba" > /dev/null 2>&1; then
                 echo "apim_db is ready!"
                 break
               fi
-              echo "Waiting for apim_db... ($i/120)"
-              sleep 2
+              if [ $i -eq 60 ]; then
+                echo "::error::Oracle apim_db failed to start after 10 minutes."
+                echo "Fetching last 100 lines of container logs for debugging:"
+                docker logs apim_db --tail 100
+                exit 1
+              fi
+              echo "Waiting for apim_db... ($i/60)"
+              sleep 10
             done
 
             # Wait for shared_db
-            for i in {1..120}; do
-              if docker logs shared_db | grep -q "DATABASE IS READY TO USE"; then
+            for i in {1..60}; do
+              if docker exec shared_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass as sysdba" > /dev/null 2>&1; then
                 echo "shared_db is ready!"
                 break
               fi
-              echo "Waiting for shared_db... ($i/120)"
-              sleep 2
+              if [ $i -eq 60 ]; then
+                echo "::error::Oracle shared_db failed to start after 10 minutes."
+                echo "Fetching last 100 lines of container logs for debugging:"
+                docker logs shared_db --tail 100
+                exit 1
+              fi
+              echo "Waiting for shared_db... ($i/60)"
+              sleep 10
             done
           
             echo "Applying explicit WSO2 permissions to APIM_DB_USER..."
@@ -570,6 +583,9 @@ jobs:
           
             echo "Restarting Oracle containers to apply limits..."
             docker restart apim_db shared_db
+          
+            # Brief sleep to allow Oracle to come back up after the restart
+            echo "Waiting for databases to come back up after restart..."
             sleep 30
           fi
 
