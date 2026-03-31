@@ -642,9 +642,14 @@ jobs:
           # List the files for debugging purposes
           ls -lh $DB_DIR/
           
-          # Hard fail the workflow if the files are missing
-          test -f $DB_DIR/apim_db_320_dump.sql
-          test -f $DB_DIR/shared_db_320_dump.sql
+          # Hard fail 3.2.0 db dumps are missing
+          if [ "${{ matrix.db_type }}" == "oracle" ]; then
+            test -f $DB_DIR/apim_db_dump_oracle_320.dmp
+            test -f $DB_DIR/shared_db_dump_oracle_320.dmp
+          else
+            test -f $DB_DIR/apim_db_320_dump.sql
+            test -f $DB_DIR/shared_db_320_dump.sql
+          fi
 
       - name: Restore APIM DB dump (3.2.0)
         run: |
@@ -679,10 +684,18 @@ jobs:
             docker exec -i -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -f /apim_db_dump.sql
           
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/apim_db_320_dump.sql"
-            echo "Restoring Oracle APIM dump..."
-            docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
-            docker exec -i apim_db bash -c "echo -e '@/apim_db_dump.sql\nEXIT;' | sqlplus -s APIM_DB_USER/apimpass@//localhost:1521/XE"
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/apim_db_dump_oracle_320.dmp"
+            echo "Restoring Oracle APIM dump using Data Pump (impdp)..."
+          
+            # Create a directory for the dump inside the container
+            docker exec -i apim_db bash -c "mkdir -p /tmp/dpdump"
+          
+            # Copy the dump file into the container
+            docker cp $DUMP_FILE apim_db:/tmp/dpdump/apim_db_dump_oracle_320.dmp
+          
+            # Create Oracle directory, grant permissions, and run import
+            docker exec -i apim_db bash -c "echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO APIM_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
+              impdp APIM_DB_USER/apimpass@//localhost:1521/XEPDB1 directory=dp_dir dumpfile=apim_db_dump_oracle_320.dmp logfile=apim_impdp.log"
           fi
           
           echo "APIM DB dump restored successfully"
