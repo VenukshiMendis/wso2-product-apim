@@ -1479,19 +1479,21 @@ jobs:
           #  Replace '&amp;' with a standard '&' specifically for Maven 
           CLEAN_SHARED_URL=$(echo "$SHARED_DATABASE_URL" | sed 's/&amp;/\&/g')
           CLEAN_APIM_URL=$(echo "$API_MANAGER_DATABASE_URL" | sed 's/&amp;/\&/g')
-        
+          
           
           echo ""
           echo "=== Database Configuration Passed to Maven ==="
-          echo "Shared DB Type:   $SHARED_DATABASE_TYPE"
-          echo "Shared DB Driver: $SHARED_DATABASE_DRIVER"
-          echo "Shared DB URL:    $CLEAN_SHARED_URL"
-          echo "Shared DB User:   $SHARED_DATABASE_USERNAME"
-          echo "----------------------------------------------"
-          echo "APIM DB Type:     $API_MANAGER_DATABASE_TYPE"
-          echo "APIM DB Driver:   $API_MANAGER_DATABASE_DRIVER"
-          echo "APIM DB URL:      $CLEAN_APIM_URL"
-          echo "APIM DB User:     $API_MANAGER_DATABASE_USERNAME"
+          echo "Shared DB Type:       $SHARED_DATABASE_TYPE"
+          echo "Shared DB Driver:     $SHARED_DATABASE_DRIVER"
+          echo "Shared DB URL:        $CLEAN_SHARED_URL"
+          echo "Shared DB User:       $SHARED_DATABASE_USERNAME"
+          echo "Shared DB Validation: $SHARED_DATABASE_VALIDATION_QUERY"
+            echo "----------------------------------------------"
+          echo "APIM DB Type:         $API_MANAGER_DATABASE_TYPE"
+          echo "APIM DB Driver:       $API_MANAGER_DATABASE_DRIVER"
+          echo "APIM DB URL:          $CLEAN_APIM_URL"
+          echo "APIM DB User:         $API_MANAGER_DATABASE_USERNAME"
+          echo "APIM DB Validation:   $API_MANAGER_DATABASE_VALIDATION_QUERY"
           echo "=============================================="
           echo ""
           
@@ -1512,11 +1514,13 @@ jobs:
             -Dshared.database.url="$CLEAN_SHARED_URL" \
             -Dshared.database.username="$SHARED_DATABASE_USERNAME" \
             -Dshared.database.password="$SHARED_DATABASE_PASSWORD" \
+            -Dshared.database.validationQuery="$SHARED_DATABASE_VALIDATION_QUERY" \
             -Dapim.database.type="$API_MANAGER_DATABASE_TYPE" \
             -Dapim.database.driver="$API_MANAGER_DATABASE_DRIVER" \
             -Dapim.database.url="$CLEAN_APIM_URL" \
             -Dapim.database.username="$API_MANAGER_DATABASE_USERNAME" \
-            -Dapim.database.password="$API_MANAGER_DATABASE_PASSWORD"
+            -Dapim.database.password="$API_MANAGER_DATABASE_PASSWORD" \
+            -Dapim.database.validationQuery="$API_MANAGER_DATABASE_VALIDATION_QUERY"
 
       - name: Upload test reports
         if: always()
