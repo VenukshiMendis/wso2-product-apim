@@ -733,10 +733,18 @@ jobs:
             docker exec -i -e PGPASSWORD=sharedpass shared_db psql -U shared_user -d shared_db -f /shared_db_dump.sql
           
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/shared_db_320_dump.sql"
-            echo "Restoring Oracle Shared dump from $DUMP_FILE..."
-            docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
-            docker exec -i shared_db bash -c "echo -e '@/shared_db_dump.sql\nEXIT;' | sqlplus -s SHARED_DB_USER/sharedpass@//localhost:1521/XE"
+            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/shared_db_dump_oracle_320.dmp"
+            echo "Restoring Oracle Shared dump using Data Pump (impdp)..."
+          
+            # Create a directory for the dump inside the container
+            docker exec -i shared_db bash -c "mkdir -p /tmp/dpdump"
+          
+            # Copy the dump file into the container
+            docker cp "$DUMP_FILE" shared_db:/tmp/dpdump/shared_db_dump_oracle_320.dmp
+          
+            # Create Oracle directory inside the PDB, grant permissions, and run import
+            docker exec -i shared_db bash -c "echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO SHARED_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba && \
+              impdp SHARED_DB_USER/sharedpass@//localhost:1521/XEPDB1 directory=dp_dir dumpfile=shared_db_dump_oracle_320.dmp logfile=shared_impdp.log full=y"
           fi
           
           echo "Shared DB dump restored successfully"
@@ -782,10 +790,10 @@ jobs:
           
             # Verify file exists
             test -f "$SCRIPT_FILE"
-          
-            # Copy and execute using sqlplus
+            
+            # Copy and execute using sqlplus (Connecting to XEPDB1)
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
-            docker exec -i shared_db bash -c "echo -e '@/shared_db_script.sql\nEXIT;' | sqlplus -s SHARED_DB_USER/sharedpass@//localhost:1521/XE"
+            docker exec -i shared_db bash -c "echo -e '@/shared_db_script.sql\nEXIT;' | sqlplus -s SHARED_DB_USER/sharedpass@//localhost:1521/XEPDB1"
           fi
           
           echo "DB script executed successfully"
