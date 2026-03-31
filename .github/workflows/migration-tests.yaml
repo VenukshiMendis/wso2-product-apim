@@ -693,9 +693,9 @@ jobs:
             # Copy the dump file into the container
             docker cp $DUMP_FILE apim_db:/tmp/dpdump/apim_db_dump_oracle_320.dmp
           
-            # Create Oracle directory, grant permissions, and run import
-            docker exec -i apim_db bash -c "echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO APIM_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
-              impdp APIM_DB_USER/apimpass@//localhost:1521/XEPDB1 directory=dp_dir dumpfile=apim_db_dump_oracle_320.dmp logfile=apim_impdp.log"
+            # Create Oracle directory inside the PDB, grant permissions, and run import
+            docker exec -i apim_db bash -c "echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO APIM_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba && \
+              impdp APIM_DB_USER/apimpass@//localhost:1521/XEPDB1 directory=dp_dir dumpfile=apim_db_dump_oracle_320.dmp logfile=apim_impdp.log full=y"
           fi
           
           echo "APIM DB dump restored successfully"
