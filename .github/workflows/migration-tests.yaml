@@ -140,8 +140,8 @@ jobs:
 
           - db_type: oracle
             display_name: "Oracle"
-            apim_url: "jdbc:oracle:thin:@host.docker.internal:1521/XE"
-            shared_url: "jdbc:oracle:thin:@host.docker.internal:1522/XE"
+            apim_url: "jdbc:oracle:thin:@host.docker.internal:1521/XEPDB1"
+            shared_url: "jdbc:oracle:thin:@host.docker.internal:1522/XEPDB1"
             driver_class: "oracle.jdbc.OracleDriver"
             validation_query: "SELECT 1 FROM DUAL"
             apim_username: "APIM_DB_USER"
