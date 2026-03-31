@@ -111,6 +111,10 @@ jobs:
             shared_url: "jdbc:mysql://host.docker.internal:3307/WSO2AM_COMMON_DB?allowPublicKeyRetrieval=true&amp;useSSL=false"
             driver_class: "com.mysql.cj.jdbc.Driver"
             validation_query: "SELECT 1"
+            apim_username: "apim_user"
+            shared_username: "shared_user"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
 
           - db_type: mssql
             display_name: "MSSQL"
@@ -118,6 +122,10 @@ jobs:
             shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=shared_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
             driver_class: "com.microsoft.sqlserver.jdbc.SQLServerDriver"
             validation_query: "SELECT 1"
+            apim_username: "apim_user"
+            shared_username: "shared_user"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
 
           - db_type: postgre
             display_name: "PostgreSQL"
@@ -125,6 +133,10 @@ jobs:
             shared_url: "jdbc:postgresql://host.docker.internal:5433/shared_db"
             driver_class: "org.postgresql.Driver"
             validation_query: "SELECT 1"
+            apim_username: "apim_user"
+            shared_username: "shared_user"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
 
           - db_type: oracle
             display_name: "Oracle"
@@ -132,22 +144,26 @@ jobs:
             shared_url: "jdbc:oracle:thin:@host.docker.internal:1522/XE"
             driver_class: "oracle.jdbc.OracleDriver"
             validation_query: "SELECT 1 FROM DUAL"
+            apim_username: "APIM_DB_USER"
+            shared_username: "SHARED_DB_USER"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
 
     env:
       # API Manager Database (apim_db)
       API_MANAGER_DATABASE_TYPE: ${{ matrix.db_type }}
       API_MANAGER_DATABASE_DRIVER: ${{ matrix.driver_class }}
       API_MANAGER_DATABASE_URL: ${{ matrix.apim_url }}
-      API_MANAGER_DATABASE_USERNAME: apim_user
-      API_MANAGER_DATABASE_PASSWORD: apimpass
+      API_MANAGER_DATABASE_USERNAME: ${{ matrix.apim_username }}
+      API_MANAGER_DATABASE_PASSWORD: ${{ matrix.apim_password }}
       API_MANAGER_DATABASE_VALIDATION_QUERY: ${{ matrix.validation_query }}
 
       # Shared Database (shared_db)
       SHARED_DATABASE_TYPE: ${{ matrix.db_type }}
       SHARED_DATABASE_DRIVER: ${{ matrix.driver_class }}
       SHARED_DATABASE_URL: ${{ matrix.shared_url }}
-      SHARED_DATABASE_USERNAME: shared_user
-      SHARED_DATABASE_PASSWORD: sharedpass
+      SHARED_DATABASE_USERNAME: ${{ matrix.shared_username }}
+      SHARED_DATABASE_PASSWORD: ${{ matrix.shared_password }}
       SHARED_DATABASE_VALIDATION_QUERY: ${{ matrix.validation_query }}
 
     steps:
@@ -222,7 +238,7 @@ jobs:
             docker run -d --name apim_db \
               -p 1521:1521 \
               -e ORACLE_PASSWORD=rootpass \
-              -e APP_USER=apim_user \
+              -e APP_USER=APIM_DB_USER \
               -e APP_PASSWORD=apimpass \
               gvenzl/oracle-xe:21-slim-faststart
           
@@ -230,7 +246,7 @@ jobs:
             docker run -d --name shared_db \
               -p 1522:1521 \
               -e ORACLE_PASSWORD=rootpass \
-              -e APP_USER=shared_user \
+              -e APP_USER=SHARED_DB_USER \
               -e APP_PASSWORD=sharedpass \
               gvenzl/oracle-xe:21-slim-faststart
           fi
@@ -542,11 +558,11 @@ jobs:
               sleep 2
             done
           
-            echo "Applying explicit WSO2 permissions to apim_user..."
-            docker exec apim_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO apim_user;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
+            echo "Applying explicit WSO2 permissions to APIM_DB_USER..."
+            docker exec apim_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO APIM_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
           
-            echo "Applying explicit WSO2 permissions to shared_user..."
-            docker exec shared_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO shared_user;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
+            echo "Applying explicit WSO2 permissions to SHARED_DB_USER..."
+            docker exec shared_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO SHARED_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
 
             echo "Increasing Oracle process limit to 500 to prevent PoolExhaustedExceptions..."
             docker exec apim_db bash -c "echo -e 'ALTER SYSTEM SET PROCESSES=500 SCOPE=SPFILE;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
@@ -615,7 +631,7 @@ jobs:
             DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/apim_db_320_dump.sql"
             echo "Restoring Oracle APIM dump..."
             docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
-            docker exec -i apim_db bash -c "echo -e '@/apim_db_dump.sql\nEXIT;' | sqlplus -s apim_user/apimpass@//localhost:1521/XE"
+            docker exec -i apim_db bash -c "echo -e '@/apim_db_dump.sql\nEXIT;' | sqlplus -s APIM_DB_USER/apimpass@//localhost:1521/XE"
           fi
           
           echo "APIM DB dump restored successfully"
@@ -656,7 +672,7 @@ jobs:
             DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/shared_db_320_dump.sql"
             echo "Restoring Oracle Shared dump from $DUMP_FILE..."
             docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
-            docker exec -i shared_db bash -c "echo -e '@/shared_db_dump.sql\nEXIT;' | sqlplus -s shared_user/sharedpass@//localhost:1521/XE"
+            docker exec -i shared_db bash -c "echo -e '@/shared_db_dump.sql\nEXIT;' | sqlplus -s SHARED_DB_USER/sharedpass@//localhost:1521/XE"
           fi
           
           echo "Shared DB dump restored successfully"
@@ -705,7 +721,7 @@ jobs:
           
             # Copy and execute using sqlplus
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
-            docker exec -i shared_db bash -c "echo -e '@/shared_db_script.sql\nEXIT;' | sqlplus -s shared_user/sharedpass@//localhost:1521/XE"
+            docker exec -i shared_db bash -c "echo -e '@/shared_db_script.sql\nEXIT;' | sqlplus -s SHARED_DB_USER/sharedpass@//localhost:1521/XE"
           fi
           
           echo "DB script executed successfully"
@@ -1336,16 +1352,16 @@ jobs:
             echo "Dumping Oracle apim_db using Data Pump (expdp)..."
             # Create a directory inside the container, map it in Oracle, and run expdp
             docker exec apim_db bash -c "mkdir -p /tmp/dpdump && \
-              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO apim_user;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
-              expdp apim_user/apimpass@//localhost:1521/XE schemas=apim_user directory=dp_dir dumpfile=apim_db_after_migration.dmp logfile=apim_db_exp.log reuse_dumpfiles=YES"
+              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO APIM_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
+              expdp APIM_DB_USER/apimpass@//localhost:1521/XE schemas=APIM_DB_USER directory=dp_dir dumpfile=apim_db_after_migration.dmp logfile=apim_db_exp.log reuse_dumpfiles=YES"
           
             # Copy the binary dump file out of the container
             docker cp apim_db:/tmp/dpdump/apim_db_after_migration.dmp .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
           
             echo "Dumping Oracle shared_db using Data Pump (expdp)..."
             docker exec shared_db bash -c "mkdir -p /tmp/dpdump && \
-              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO shared_user;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
-              expdp shared_user/sharedpass@//localhost:1521/XE schemas=shared_user directory=dp_dir dumpfile=shared_db_after_migration.dmp logfile=shared_db_exp.log reuse_dumpfiles=YES"
+              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO SHARED_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
+              expdp SHARED_DB_USER/sharedpass@//localhost:1521/XE schemas=SHARED_DB_USER directory=dp_dir dumpfile=shared_db_after_migration.dmp logfile=shared_db_exp.log reuse_dumpfiles=YES"
           
             docker cp shared_db:/tmp/dpdump/shared_db_after_migration.dmp .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
           fi
