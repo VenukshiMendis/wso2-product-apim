@@ -239,7 +239,7 @@ jobs:
               -p 1521:1521 \
               -e ORACLE_PASSWORD=rootpass \
               -e APP_USER=APIM_DB_USER \
-              -e APP_PASSWORD=apimpass \
+              -e APP_USER_PASSWORD=apimpass \
               gvenzl/oracle-xe:21-slim-faststart
           
             echo "Starting Oracle XE for Shared DB..."
@@ -247,7 +247,7 @@ jobs:
               -p 1522:1521 \
               -e ORACLE_PASSWORD=rootpass \
               -e APP_USER=SHARED_DB_USER \
-              -e APP_PASSWORD=sharedpass \
+              -e APP_USER_PASSWORD=sharedpass \
               gvenzl/oracle-xe:21-slim-faststart
           fi
 
@@ -456,6 +456,12 @@ jobs:
                 echo "apim_db is ready"
                 break
               fi
+              if [ $i -eq 60 ]; then
+                echo "::error::MySQL apim_db failed to start after 120 seconds."
+                echo "Fetching container logs for debugging:"
+                docker logs apim_db
+                exit 1
+              fi
               echo "Waiting for apim_db... ($i/60)"
               sleep 2
             done
@@ -464,6 +470,12 @@ jobs:
               if mysqladmin ping -h 127.0.0.1 -P 3307 -uroot -prootpass --silent 2>/dev/null; then
                 echo "shared_db is ready"
                 break
+              fi
+              if [ $i -eq 60 ]; then
+                echo "::error::MySQL shared_db failed to start after 120 seconds."
+                echo "Fetching container logs for debugging:"
+                docker logs shared_db
+                exit 1
               fi
               echo "Waiting for shared_db... ($i/60)"
               sleep 2
@@ -484,6 +496,12 @@ jobs:
                 echo "apim_db is ready"
                 break
               fi
+              if [ $i -eq 60 ]; then
+                echo "::error::MSSQL apim_db failed to start after 120 seconds."
+                echo "Fetching container logs for debugging:"
+                docker logs apim_db
+                exit 1
+              fi
               echo "Waiting for apim_db... ($i/60)"
               sleep 2
             done
@@ -492,6 +510,12 @@ jobs:
               if docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" &> /dev/null; then
                 echo "shared_db is ready"
                 break
+              fi
+              if [ $i -eq 60 ]; then
+                echo "::error::MSSQL shared_db failed to start after 120 seconds."
+                echo "Fetching container logs for debugging:"
+                docker logs shared_db
+                exit 1
               fi
               echo "Waiting for shared_db... ($i/60)"
               sleep 2
@@ -511,6 +535,12 @@ jobs:
                 echo "apim_db is ready"
                 break
               fi
+              if [ $i -eq 60 ]; then
+                echo "::error::PostgreSQL apim_db failed to start after 120 seconds."
+                echo "Fetching container logs for debugging:"
+                docker logs apim_db
+                exit 1
+              fi
               echo "Waiting for apim_db... ($i/60)"
               sleep 2
             done
@@ -520,13 +550,18 @@ jobs:
                 echo "shared_db is ready"
                 break
               fi
+              if [ $i -eq 60 ]; then
+                  echo "::error::PostgreSQL shared_db failed to start after 120 seconds."
+                  echo "Fetching container logs for debugging:"
+                  docker logs shared_db
+                  exit 1
+              fi
               echo "Waiting for shared_db... ($i/60)"
               sleep 2
             done
           
             echo "PostgreSQL databases are responding successfully!"
             
-            # --- WSO2 REQUIRED POSTGRESQL PERMISSIONS ---
             echo "Granting SUPERUSER permission to apim_user..."
             docker exec -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -c "ALTER USER apim_user WITH SUPERUSER;"
           
@@ -571,10 +606,10 @@ jobs:
               sleep 10
             done
           
-            echo "Applying explicit WSO2 permissions to APIM_DB_USER..."
+            echo "Applying explicit permissions to APIM_DB_USER..."
             docker exec apim_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO APIM_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
           
-            echo "Applying explicit WSO2 permissions to SHARED_DB_USER..."
+            echo "Applying explicit permissions to SHARED_DB_USER..."
             docker exec shared_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO SHARED_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
 
             echo "Increasing Oracle process limit to 500 to prevent PoolExhaustedExceptions..."
