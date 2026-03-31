@@ -576,7 +576,7 @@ jobs:
             # Wait for apim_db
             for i in {1..60}; do
               # Ping the database using sqlplus to see if it's actually accepting queries
-              if docker exec apim_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass as sysdba" > /dev/null 2>&1; then
+              if docker exec apim_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba" > /dev/null 2>&1; then
                 echo "apim_db is ready!"
                 break
               fi
@@ -592,7 +592,7 @@ jobs:
 
             # Wait for shared_db
             for i in {1..60}; do
-              if docker exec shared_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass as sysdba" > /dev/null 2>&1; then
+              if docker exec shared_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba" > /dev/null 2>&1; then
                 echo "shared_db is ready!"
                 break
               fi
@@ -607,10 +607,10 @@ jobs:
             done
           
             echo "Applying explicit permissions to APIM_DB_USER..."
-            docker exec apim_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO APIM_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
+            docker exec apim_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO APIM_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba"
           
             echo "Applying explicit permissions to SHARED_DB_USER..."
-            docker exec shared_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO SHARED_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
+            docker exec shared_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO SHARED_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba"
 
             echo "Increasing Oracle process limit to 500 to prevent PoolExhaustedExceptions..."
             docker exec apim_db bash -c "echo -e 'ALTER SYSTEM SET PROCESSES=500 SCOPE=SPFILE;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
