@@ -1424,16 +1424,16 @@ jobs:
             echo "Dumping Oracle apim_db using Data Pump (expdp)..."
             # Create a directory inside the container, map it in Oracle, and run expdp
             docker exec apim_db bash -c "mkdir -p /tmp/dpdump && \
-              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO APIM_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
-              expdp APIM_DB_USER/apimpass@//localhost:1521/XE schemas=APIM_DB_USER directory=dp_dir dumpfile=apim_db_after_migration.dmp logfile=apim_db_exp.log reuse_dumpfiles=YES"
+              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO APIM_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba && \
+              expdp APIM_DB_USER/apimpass@//localhost:1521/XEPDB1 schemas=APIM_DB_USER directory=dp_dir dumpfile=apim_db_after_migration.dmp logfile=apim_db_exp.log reuse_dumpfiles=YES"
           
             # Copy the binary dump file out of the container
             docker cp apim_db:/tmp/dpdump/apim_db_after_migration.dmp .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
           
             echo "Dumping Oracle shared_db using Data Pump (expdp)..."
             docker exec shared_db bash -c "mkdir -p /tmp/dpdump && \
-              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO SHARED_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass as sysdba && \
-              expdp SHARED_DB_USER/sharedpass@//localhost:1521/XE schemas=SHARED_DB_USER directory=dp_dir dumpfile=shared_db_after_migration.dmp logfile=shared_db_exp.log reuse_dumpfiles=YES"
+              echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO SHARED_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba && \
+              expdp SHARED_DB_USER/sharedpass@//localhost:1521/XEPDB1 schemas=SHARED_DB_USER directory=dp_dir dumpfile=shared_db_after_migration.dmp logfile=shared_db_exp.log reuse_dumpfiles=YES"
           
             docker cp shared_db:/tmp/dpdump/shared_db_after_migration.dmp .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
           fi
