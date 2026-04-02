@@ -1389,26 +1389,17 @@ jobs:
               > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
           
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
-            echo "Installing mssql-scripter inside a virtual environment..."
+            echo "Dumping MSSQL apim_db using native BACKUP command..."
+            # Run native BACKUP command inside the container
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "BACKUP DATABASE apim_db TO DISK = '/var/opt/mssql/apim_db_after_migration.bak' WITH FORMAT, INIT;"
           
-            # Create and activate a virtual environment
-            python3 -m venv /tmp/mssql_env
-            source /tmp/mssql_env/bin/activate
+            # Copy the .bak file out of the container
+            docker cp apim_db:/var/opt/mssql/apim_db_after_migration.bak .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
           
-            # Install inside the venv
-            pip install mssql-scripter
+            echo "Dumping MSSQL shared_db using native BACKUP command..."
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "BACKUP DATABASE shared_db TO DISK = '/var/opt/mssql/shared_db_after_migration.bak' WITH FORMAT, INIT;"
           
-            echo "Dumping MSSQL apim_db to .sql format..."
-            # Run the module directly via python so it doesn't get confused by the wrapper bug
-            python -m mssqlscripter -S localhost,1433 -U sa -P 'RootPass123!' -d apim_db --schema-and-data \
-              > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/apim_db_after_migration.sql
-          
-            echo "Dumping MSSQL shared_db to .sql format..."
-            python -m mssqlscripter -S localhost,1434 -U sa -P 'RootPass123!' -d shared_db --schema-and-data \
-              > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
-          
-            # Deactivate the venv just to be clean
-            deactivate
+            docker cp shared_db:/var/opt/mssql/shared_db_after_migration.bak .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
           
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             echo "Dumping PostgreSQL apim_db..."
