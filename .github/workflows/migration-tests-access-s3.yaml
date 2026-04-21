@@ -8,11 +8,13 @@ on:
 
 env:
   # ========================================================================
-  # MIGRATION CLIENT S3 URLs
-  # Easily change these URLs to test different versions of migration clients
+  # MIGRATION CLIENT S3 URIs & AWS REGION
+  # Easily change these URIs to test different versions of migration clients.
+  # Note: Since we are using authentication, these must be in 's3://' format.
   # ========================================================================
-  IDENTITY_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2is-migration-1.1.179-SNAPSHOT.zip"
-  APIM_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
+  IDENTITY_MIGRATION_S3_URI: "s3://apim-migration-test-resources/wso2is-migration-1.1.179-SNAPSHOT.zip"
+  APIM_MIGRATION_S3_URI: "s3://apim-migration-test-resources/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
+  AWS_REGION: "us-east-1"
 
 jobs:
   update-and-build:
@@ -283,7 +285,6 @@ jobs:
               -e APP_USER_PASSWORD=sharedpass \
               gvenzl/oracle-xe:21-slim-faststart
           fi
-
 
       - name: Checkout master-new-test-framework branch
         uses: actions/checkout@v4
@@ -832,14 +833,23 @@ jobs:
           echo "Docker image built successfully"
           docker images | grep wso2am-migration || true
 
+
+      # Configure AWS Credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Identity Migration - Download and Setup
         run: |
           echo "=== Step 1: Identity Migration Setup ==="
           
-          # Download Identity migration zip
-          echo "Downloading Identity migration resources from $IDENTITY_MIGRATION_S3_URL ..."
+          # Download Identity migration zip using AWS CLI instead of curl
+          echo "Downloading Identity migration resources from $IDENTITY_MIGRATION_S3_URI ..."
           mkdir -p .github/MIGRATION_RESOURCES
-          curl -fSL "$IDENTITY_MIGRATION_S3_URL" -o .github/MIGRATION_RESOURCES/identity-migration.zip
+          aws s3 cp "$IDENTITY_MIGRATION_S3_URI" .github/MIGRATION_RESOURCES/identity-migration.zip
           
           # Unzip
           unzip -q .github/MIGRATION_RESOURCES/identity-migration.zip -d .github/MIGRATION_RESOURCES/identity-migration
@@ -987,10 +997,10 @@ jobs:
         run: |
           echo "=== Step 3: APIM Migration Setup ==="
           
-          # Download APIM migration zip
-          echo "Downloading APIM migration resources from $APIM_MIGRATION_S3_URL ..."
+          # Download APIM migration zip using AWS CLI instead of curl
+          echo "Downloading APIM migration resources from $APIM_MIGRATION_S3_URI ..."
           mkdir -p .github/MIGRATION_RESOURCES
-          curl -fSL "$APIM_MIGRATION_S3_URL" -o .github/MIGRATION_RESOURCES/apim-migration.zip
+          aws s3 cp "$APIM_MIGRATION_S3_URI" .github/MIGRATION_RESOURCES/apim-migration.zip
           
           # Unzip
           unzip -q .github/MIGRATION_RESOURCES/apim-migration.zip -d .github/MIGRATION_RESOURCES/apim-migration
@@ -1482,7 +1492,7 @@ jobs:
           echo "=============================================="
           echo ""
           
-          echo "Applying MSSQL concurrency fix..."    
+          echo "Applying MSSQL concurrency fix..."   
           if [ "${{ matrix.db_type }}" == "mssql" ]; then
             echo "Enabling READ_COMMITTED_SNAPSHOT just before tests to prevent deadlocks..."
             docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE apim_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
