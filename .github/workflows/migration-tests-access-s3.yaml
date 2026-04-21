@@ -1,4 +1,4 @@
-name: APIM Database Migration Tests
+name: APIM Database Migration Tests S3
 
 on:
   workflow_dispatch: {}
@@ -95,6 +95,7 @@ jobs:
         with:
           name: apim-distribution
           path: ${{ steps.find_dist.outputs.dist_path }}
+          retention-days: 7
           if-no-files-found: error
 
   prepare-and-migrate:
@@ -177,7 +178,7 @@ jobs:
               -e MYSQL_USER=apim_user \
               -e MYSQL_PASSWORD=apimpass \
               -p 3306:3306 mysql:8.0
-            
+          
             docker run -d --name shared_db \
               -e MYSQL_ROOT_PASSWORD=rootpass \
               -e MYSQL_DATABASE=WSO2AM_COMMON_DB \
@@ -201,19 +202,43 @@ jobs:
               -e MSSQL_PID="Developer" \
               -p 1434:1433 \
               mcr.microsoft.com/azure-sql-edge
-            
-            # Note: MSSQL requires you to create the databases and users manually after startup
-            sleep 15
-            
+          
+            # Wait until SQL Edge accepts connections before running DDL
+            for i in {1..60}; do
+              if docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+                break
+              fi
+              echo "Waiting for apim_db SQL Edge startup... ($i/60)"
+              sleep 2
+            done
+            # Fail if database is still not ready
+            if ! docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+              echo "ERROR: apim_db failed to start within timeout"
+              exit 1
+            fi
+
+            for i in {1..60}; do
+              if docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+                break
+              fi
+              echo "Waiting for shared_db SQL Edge startup... ($i/60)"
+              sleep 2
+            done
+            # Fail if database is still not ready
+            if ! docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+              echo "ERROR: shared_db failed to start within timeout"
+              exit 1
+            fi
+          
             echo "Creating APIM Database and Login..."
             docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE apim_db; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass', CHECK_POLICY = OFF;"
-            
+          
             echo "Mapping APIM User to Database..."
             docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -Q "CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
-    
+          
             echo "Creating Shared Database and Login..."
             docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE shared_db; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass', CHECK_POLICY = OFF;"
-            
+          
             echo "Mapping Shared User to Database..."
             docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -Q "CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
           
@@ -224,7 +249,7 @@ jobs:
               -e POSTGRES_USER=apim_user \
               -e POSTGRES_PASSWORD=apimpass \
               -p 5432:5432 postgres:14
-            
+          
             echo "Starting PostgreSQL for Shared DB..."
             docker run -d --name shared_db \
               -e POSTGRES_DB=shared_db \
@@ -252,10 +277,10 @@ jobs:
           fi
 
 
-      - name: Checkout master-new-test-framework-add-db-dumps branch
+      - name: Checkout master-new-test-framework branch
         uses: actions/checkout@v4
         with:
-          ref: master-new-test-framework-add-db-dumps
+          ref: master-new-test-framework
           fetch-depth: 0
 
       - name: Set up JDK
@@ -332,81 +357,34 @@ jobs:
           
           echo "Keystore and truststore files replaced in $SECURITY_DIR"
 
-      - name: Configure deployment.toml with MySQL database settings and asymmetric encryption
+      - name: Configure deployment.toml with database settings
         run: |
-          set -e
-          
           DEPLOYMENT_TOML="$EXTRACTED_DIR/repository/conf/deployment.toml"
           
           # Backup original deployment.toml
           cp "$DEPLOYMENT_TOML" "$DEPLOYMENT_TOML.backup"
           
-          # Remove sections that will be replaced
+          # Read the original file and remove existing sections
+          # Remove existing database.apim_db, database.shared_db, apim.gateway.environment, and apim.sync_runtime_artifacts.gateway sections
           awk '
-          /^\[database\.apim_db\]/ { skip=1; next }
-          /^\[database\.shared_db\]/ { skip=1; next }
-          /^\[\[apim\.gateway\.environment\]\]/ { skip=1; next }
-          /^\[apim\.sync_runtime_artifacts\.gateway\]/ { skip=1; next }
-          /^\[\[/ && skip { skip=0; print; next }
-          /^\[/ && skip { skip=0; print; next }
-          skip { next }
-          !skip { print }
+            /^\[database\.apim_db\]/ { skip=1; next }
+            /^\[database\.shared_db\]/ { skip=1; next }
+            /^\[\[apim\.gateway\.environment\]\]/ { skip=1; next }
+            /^\[apim\.sync_runtime_artifacts\.gateway\]/ { skip=1; next }
+            /^\[\[/ && skip { skip=0; print; next }
+            /^\[/ && skip { skip=0; print; next }
+            skip { next }
+            !skip { print }
           ' "$DEPLOYMENT_TOML.backup" > "$DEPLOYMENT_TOML.tmp"
+
+          # Append database configurations and gateway environment from static template
+          cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml >> "$DEPLOYMENT_TOML.tmp"
           
-          # Normalize line endings
-          sed -i 's/\r$//' "$DEPLOYMENT_TOML.tmp"
+          mv "$DEPLOYMENT_TOML.tmp" "$DEPLOYMENT_TOML"
           
-          # Insert [keystore] block or property if needed
-          awk '
-          BEGIN {
-           keystore_found=0
-           inserted_key=0
-          }
-    
-          /^[[:space:]]*\[keystore\][[:space:]]*$/ {
-           keystore_found=1
-           print
-           next
-          }
-    
-          keystore_found && !inserted_key && /^[[:space:]]*\[/ {
-           print "userstore_password_encryption = \"InternalKeyStore\""
-           print ""
-           inserted_key=1
-           keystore_found=0
-          }
-    
-          /^[[:space:]]*\[keystore\.[^]]+\][[:space:]]*$/ && !inserted_key && !keystore_found {
-           print "[keystore]"
-           print "userstore_password_encryption = \"InternalKeyStore\""
-           print ""
-           inserted_key=1
-          }
-    
-          { print }
-    
-          END {
-           if (keystore_found && !inserted_key) {
-             print "userstore_password_encryption = \"InternalKeyStore\""
-           } else if (!inserted_key) {
-             print ""
-             print "[keystore]"
-             print "userstore_password_encryption = \"InternalKeyStore\""
-           }
-          }
-          ' "$DEPLOYMENT_TOML.tmp" > "$DEPLOYMENT_TOML.tmp2"
-          
-          # Append additional configs from static template
-          cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml >> "$DEPLOYMENT_TOML.tmp2"
-          
-          # Finalize
-          mv "$DEPLOYMENT_TOML.tmp2" "$DEPLOYMENT_TOML"
-          
-          echo "deployment.toml configured with MySQL database settings, gateway environment and asymmetric encryption"
-          
-          echo "::group::Final deployment.toml"
-          cat "$DEPLOYMENT_TOML"
-          echo "::endgroup::"
+          echo "deployment.toml configured with database settings and gateway environment"
+          echo "=== Updated deployment.toml ==="
+          tail -30 "$DEPLOYMENT_TOML"
 
       - name: Re-zip distribution
         run: |
@@ -431,13 +409,6 @@ jobs:
             echo "ERROR: Zip file was not created at $TARGET_PATH"
             exit 1
           fi
-
-      - name: Upload Modified APIM distribution artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: modified-apim-distribution-${{ matrix.db_type }}
-          path: all-in-one-apim/modules/distribution/product/target/wso2am-*-SNAPSHOT.zip
-          if-no-files-found: error
 
       - name: Install dependencies
         run: |
@@ -561,7 +532,7 @@ jobs:
             done
           
             echo "PostgreSQL databases are responding successfully!"
-            
+          
             echo "Granting SUPERUSER permission to apim_user..."
             docker exec -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -c "ALTER USER apim_user WITH SUPERUSER;"
           
@@ -571,11 +542,10 @@ jobs:
             echo "PostgreSQL setup fully complete!"
           
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            echo "Waiting for Oracle databases to accept connections (this can take 5-10 minutes on CI)..."
+            echo "Waiting for Oracle databases to accept connections..."
           
             # Wait for apim_db
             for i in {1..60}; do
-              # Ping the database using sqlplus to see if it's actually accepting queries
               if docker exec apim_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba" > /dev/null 2>&1; then
                 echo "apim_db is ready!"
                 break
@@ -621,7 +591,21 @@ jobs:
           
             # Brief sleep to allow Oracle to come back up after the restart
             echo "Waiting for databases to come back up after restart..."
-            sleep 30
+          
+            for db in apim_db shared_db; do
+              for i in {1..60}; do
+                if docker exec "$db" bash -c "printf '%s\n' 'WHENEVER SQLERROR EXIT SQL.SQLCODE' 'SELECT 1 FROM DUAL;' 'EXIT;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba" > /dev/null 2>&1; then
+                  break
+                fi
+                if [ $i -eq 60 ]; then
+                  echo "::error::Oracle $db failed to come back after restart."
+                  docker logs "$db" --tail 100
+                  exit 1
+                fi
+                sleep 10
+              done
+            done
+          
           fi
 
       - name: Verify APIM 3.2.0 database dumps exist
@@ -790,7 +774,7 @@ jobs:
           
             # Verify file exists
             test -f "$SCRIPT_FILE"
-            
+          
             # Copy and execute using sqlplus (Connecting to XEPDB1)
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
             docker exec -i shared_db bash -c "echo -e '@/shared_db_script.sql\nEXIT;' | sqlplus -s SHARED_DB_USER/sharedpass@//localhost:1521/XEPDB1"
@@ -956,11 +940,11 @@ jobs:
           sleep 2
           done
           ' || true
-        
+          
           echo ""
           echo "=== Streaming Identity Migration Logs ==="
           echo "----------------------------------------------------"
-        
+          
           # Stream full logs for exactly 6 minutes
           timeout 360 docker exec -i $CONTAINER_ID bash -c \
             "tail -F /home/wso2carbon/wso2am/repository/logs/wso2carbon.log" || true
@@ -972,7 +956,7 @@ jobs:
           echo "=== Final Logs (Last 500 lines) ==="
           docker exec $CONTAINER_ID bash -c \
             "tail -500 /home/wso2carbon/wso2am/repository/logs/wso2carbon.log 2>/dev/null || echo 'Log file not found'" || true
-            
+          
           echo ""
           echo "=== Stopping API Manager ==="
           docker exec $CONTAINER_ID pkill -f "api-manager.sh" || true
@@ -984,20 +968,18 @@ jobs:
           rm -rf /home/wso2carbon/wso2am/migration-resources || true
           rm -f /home/wso2carbon/wso2am/repository/components/dropins/org.wso2.carbon.is.migration-*.jar || true
           "
-        
+          
           echo ""
           echo "=== Stopping and Removing Container ==="
             docker stop $CONTAINER_ID
             docker rm $CONTAINER_ID
-            
+          
             echo ""
             echo "Identity migration run completed"
 
       - name: APIM Migration - Download and Setup
         env:
-#         APIM_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
-#          APIM_MIGRATION_S3_URL: "https://drive.google.com/uc?export=download&id=1b2CE-vHjN3lk1591j5pLKGJ8UUTFAM0-"
-          APIM_MIGRATION_S3_URL: "https://drive.google.com/uc?export=download&id=1lU-puNBTFFa8J0NjkYwbRFV8qfj38aFm"
+          APIM_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
         run: |
           echo "=== Step 3: APIM Migration Setup ==="
           
@@ -1010,7 +992,7 @@ jobs:
           unzip -q .github/MIGRATION_RESOURCES/apim-migration.zip -d .github/MIGRATION_RESOURCES/apim-migration
           
           echo "APIM migration resources downloaded and extracted"
-#
+
       - name: APIM Migration - Pre-Migration
         run: |
           echo "=== Step 4: APIM Pre-Migration ==="
@@ -1180,7 +1162,6 @@ jobs:
           ACTUAL_SHARED_URL="$SHARED_DATABASE_URL"
           if [ "${{ matrix.db_type }}" == "postgre" ]; then
             echo "Applying PostgreSQL migration requirement: preparedStatementCacheQueries=0"
-            # This appends the flag to the end of your existing URL
             ACTUAL_SHARED_URL="${SHARED_DATABASE_URL}?preparedStatementCacheQueries=0"
           fi
           
@@ -1389,17 +1370,26 @@ jobs:
               > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
           
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
-            echo "Dumping MSSQL apim_db using native BACKUP command..."
-            # Run native BACKUP command inside the container
-            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "BACKUP DATABASE apim_db TO DISK = '/var/opt/mssql/apim_db_after_migration.bak' WITH FORMAT, INIT;"
+            echo "Installing mssql-scripter inside a virtual environment..."
           
-            # Copy the .bak file out of the container
-            docker cp apim_db:/var/opt/mssql/apim_db_after_migration.bak .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
+            # Create and activate a virtual environment
+            python3 -m venv /tmp/mssql_env
+            source /tmp/mssql_env/bin/activate
           
-            echo "Dumping MSSQL shared_db using native BACKUP command..."
-            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "BACKUP DATABASE shared_db TO DISK = '/var/opt/mssql/shared_db_after_migration.bak' WITH FORMAT, INIT;"
+            # Install inside the venv
+            pip install mssql-scripter
           
-            docker cp shared_db:/var/opt/mssql/shared_db_after_migration.bak .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/
+            echo "Dumping MSSQL apim_db to .sql format..."
+            # Run the module directly via python so it doesn't get confused by the wrapper bug
+            python -m mssqlscripter -S localhost,1433 -U sa -P 'RootPass123!' -d apim_db --schema-and-data \
+              > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/apim_db_after_migration.sql
+          
+            echo "Dumping MSSQL shared_db to .sql format..."
+            python -m mssqlscripter -S localhost,1434 -U sa -P 'RootPass123!' -d shared_db --schema-and-data \
+              > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
+          
+            # Deactivate the venv just to be clean
+            deactivate
           
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             echo "Dumping PostgreSQL apim_db..."
@@ -1488,12 +1478,12 @@ jobs:
           echo "=============================================="
           echo ""
           
+          echo "Applying MSSQL concurrency fix..."    
           if [ "${{ matrix.db_type }}" == "mssql" ]; then
             echo "Enabling READ_COMMITTED_SNAPSHOT just before tests to prevent deadlocks..."
             docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE apim_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
             docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE shared_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
           fi
-
 
           mvn -B clean install \
             -Pmigration \
@@ -1522,15 +1512,6 @@ jobs:
             all-in-one-apim/modules/integration-v2/tests-integration/**/target/surefire-reports/**
             all-in-one-apim/modules/integration-v2/tests-integration/**/target/cucumber-report/**
           retention-days: 7
-          if-no-files-found: warn
-
-      - name: Upload Integration Test Server Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-test-server-logs-${{ matrix.db_type }}
-          path: |
-            all-in-one-apim/modules/integration-v2/tests-integration/**/target/**/repository/logs/
           if-no-files-found: warn
 
   version-bump:
