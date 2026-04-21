@@ -6,6 +6,14 @@ on:
     # Run nightly at 00:00 UTC
     - cron: '0 0 * * *'
 
+env:
+  # ========================================================================
+  # MIGRATION CLIENT S3 URLs
+  # Easily change these URLs to test different versions of migration clients
+  # ========================================================================
+  IDENTITY_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2is-migration-1.1.179-SNAPSHOT.zip"
+  APIM_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
+
 jobs:
   update-and-build:
     runs-on: ubuntu-latest
@@ -825,13 +833,11 @@ jobs:
           docker images | grep wso2am-migration || true
 
       - name: Identity Migration - Download and Setup
-        env:
-          IDENTITY_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2is-migration-1.1.179-SNAPSHOT.zip"
         run: |
           echo "=== Step 1: Identity Migration Setup ==="
           
           # Download Identity migration zip
-          echo "Downloading Identity migration resources..."
+          echo "Downloading Identity migration resources from $IDENTITY_MIGRATION_S3_URL ..."
           mkdir -p .github/MIGRATION_RESOURCES
           curl -fSL "$IDENTITY_MIGRATION_S3_URL" -o .github/MIGRATION_RESOURCES/identity-migration.zip
           
@@ -978,13 +984,11 @@ jobs:
             echo "Identity migration run completed"
 
       - name: APIM Migration - Download and Setup
-        env:
-          APIM_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
         run: |
           echo "=== Step 3: APIM Migration Setup ==="
           
           # Download APIM migration zip
-          echo "Downloading APIM migration resources..."
+          echo "Downloading APIM migration resources from $APIM_MIGRATION_S3_URL ..."
           mkdir -p .github/MIGRATION_RESOURCES
           curl -fSL "$APIM_MIGRATION_S3_URL" -o .github/MIGRATION_RESOURCES/apim-migration.zip
           
