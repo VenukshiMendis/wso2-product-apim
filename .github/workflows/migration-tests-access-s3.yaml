@@ -12,8 +12,8 @@ env:
   # Easily change these URIs to test different versions of migration clients.
   # Note: Since we are using authentication, these must be in 's3://' format.
   # ========================================================================
-  IDENTITY_MIGRATION_S3_URI: "s3://migration-clients-s3-bucket.s3.eu-north-1.amazonaws.com/wso2is-migration-1.1.179-SNAPSHOT.zip"
-  APIM_MIGRATION_S3_URI: "s3://migration-clients-s3-bucket.s3.eu-north-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
+  IDENTITY_MIGRATION_S3_URI: "s3://migration-clients-s3-bucket/wso2is-migration-1.1.179-SNAPSHOT.zip"
+  APIM_MIGRATION_S3_URI: "s3://migration-clients-s3-bucket/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
   AWS_REGION: "us-east-1"
 
 jobs:
