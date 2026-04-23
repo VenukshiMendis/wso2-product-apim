@@ -12,12 +12,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Mask role ARN
+        run: echo "::add-mask::${{ secrets.AWS_ROLE_ARN }}"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          # Use the secret variable here
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1
+          mask-aws-account-id: true
 
       - name: Verify assumed identity
         run: aws sts get-caller-identity
