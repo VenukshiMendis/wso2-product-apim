@@ -1,0 +1,39 @@
+name: Test S3 Access with IAM Role
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test-s3-access:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::508523775510:role/github-action-role
+          aws-region: us-east-1
+
+      - name: Verify assumed identity
+        run: aws sts get-caller-identity
+
+      - name: List bucket contents
+        run: |
+          echo "Listing objects in S3 bucket..."
+          aws s3 ls s3://migration-clients-s3-bucket/ --recursive
+
+      - name: Download ZIP files
+        run: |
+          mkdir -p s3-downloads
+          echo "Downloading ZIP files..."
+          aws s3 cp s3://migration-clients-s3-bucket/ s3-downloads/ \
+            --recursive \
+            --exclude "*" \
+            --include "*.zip"
+
+          echo "Downloaded files:"
+          ls -la s3-downloads/
