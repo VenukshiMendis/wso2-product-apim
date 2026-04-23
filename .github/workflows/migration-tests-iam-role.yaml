@@ -12,8 +12,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Mask role ARN
-        run: echo "::add-mask::${{ secrets.AWS_ROLE_ARN }}"
+      - name: Mask Sensitive Info
+        run: |
+          echo "::add-mask::${{ secrets.AWS_ROLE_ARN }}"
+          echo "::add-mask::migration-clients-s3-bucket"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -21,20 +23,21 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1
           mask-aws-account-id: true
-
-      - name: Verify assumed identity
-        run: aws sts get-caller-identity
+          output-credentials: false
 
       - name: List bucket contents
         run: |
+          # Use a variable for the bucket name so it's not hardcoded in the logs
+          BUCKET_NAME="migration-clients-s3-bucket"
           echo "Listing objects in S3 bucket..."
-          aws s3 ls s3://migration-clients-s3-bucket/ --recursive
+          aws s3 ls s3://$BUCKET_NAME/ --recursive
 
       - name: Download ZIP files
         run: |
+          BUCKET_NAME="migration-clients-s3-bucket"
           mkdir -p s3-downloads
           echo "Downloading ZIP files..."
-          aws s3 cp s3://migration-clients-s3-bucket/ s3-downloads/ \
+          aws s3 cp s3://$BUCKET_NAME/ s3-downloads/ \
             --recursive \
             --exclude "*" \
             --include "*.zip"
