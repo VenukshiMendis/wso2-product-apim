@@ -10,6 +10,14 @@ jobs:
   test-s3-access:
     runs-on: ubuntu-latest
     steps:
+      - name: Mask Assumed Role ID
+        run: |
+          # Fetch the ID and immediately tell GitHub to treat it as a secret
+          ROLE_ID=$(aws sts get-caller-identity --query "UserId" --output text | cut -d: -f1)
+          echo "::add-mask::$ROLE_ID"
+          echo "Role ID masked."
+          
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -17,12 +25,6 @@ jobs:
           aws-region: us-east-1
           mask-aws-account-id: true
 
-      - name: Mask Assumed Role ID
-        run: |
-          # Fetch the ID and immediately tell GitHub to treat it as a secret
-          ROLE_ID=$(aws sts get-caller-identity --query "UserId" --output text | cut -d: -f1)
-          echo "::add-mask::$ROLE_ID"
-          echo "Role ID masked."
 
       - name: List bucket contents
         run: |
