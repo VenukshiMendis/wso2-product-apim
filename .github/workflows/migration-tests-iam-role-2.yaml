@@ -1,0 +1,36 @@
+name: Test S3 Access with IAM Role 2
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test-s3-access:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mask Assumed Role ID
+        run: |
+          ROLE_ID=$(aws sts get-caller-identity --query "UserId" --output text | cut -d: -f1)
+          echo "::add-mask::$ROLE_ID"
+          echo "Role ID masked."
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          mask-aws-account-id: true
+
+      - name: List bucket contents
+        run: |
+          aws s3 ls s3://${{ secrets.S3_BUCKET_NAME }}/ --recursive
+
+      - name: Download ZIP files
+        run: |
+          mkdir -p s3-downloads
+          aws s3 cp s3://${{ secrets.S3_BUCKET_NAME }}/ s3-downloads/ \
+            --recursive \
+            --exclude "*" \
+            --include "*.zip"
