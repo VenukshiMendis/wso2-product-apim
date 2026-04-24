@@ -102,6 +102,9 @@ jobs:
     needs: update-and-build
     name: prepare-and-migrate - ${{ matrix.display_name }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -824,21 +827,66 @@ jobs:
           echo "Docker image built successfully"
           docker images | grep wso2am-migration || true
 
-      - name: Identity Migration - Download and Setup
+      - name: Configure AWS credentials for S3 access
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          mask-aws-account-id: true
+
+      - name: Download IS Migration Client from S3
         env:
-          IDENTITY_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2is-migration-1.1.179-SNAPSHOT.zip"
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+          IS_MIGRATION_S3_KEY: wso2is-migration-1.1.179-SNAPSHOT.zip
         run: |
-          echo "=== Step 1: Identity Migration Setup ==="
-          
-          # Download Identity migration zip
-          echo "Downloading Identity migration resources..."
+          echo "=== Downloading IS Migration Client from S3 ==="
           mkdir -p .github/MIGRATION_RESOURCES
-          curl -fSL "$IDENTITY_MIGRATION_S3_URL" -o .github/MIGRATION_RESOURCES/identity-migration.zip
           
-          # Unzip
-          unzip -q .github/MIGRATION_RESOURCES/identity-migration.zip -d .github/MIGRATION_RESOURCES/identity-migration
+          echo "Downloading s3://${S3_BUCKET}/${IS_MIGRATION_S3_KEY}..."
+          aws s3 cp "s3://${S3_BUCKET}/${IS_MIGRATION_S3_KEY}" \
+            ".github/MIGRATION_RESOURCES/identity-migration.zip"
           
-          echo "Identity migration resources downloaded and extracted"
+          if [ ! -f ".github/MIGRATION_RESOURCES/identity-migration.zip" ]; then
+            echo "ERROR: Failed to download IS migration client"
+            exit 1
+          fi
+          
+          echo "✓ IS migration client downloaded successfully"
+          ls -lh ".github/MIGRATION_RESOURCES/identity-migration.zip"
+
+      - name: Download APIM Migration Client from S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+          APIM_MIGRATION_S3_KEY: wso2am-migration-4.7.0.1-SNAPSHOT.zip
+        run: |
+          echo "=== Downloading APIM Migration Client from S3 ==="
+          mkdir -p .github/MIGRATION_RESOURCES
+          
+          echo "Downloading s3://${S3_BUCKET}/${APIM_MIGRATION_S3_KEY}..."
+          aws s3 cp "s3://${S3_BUCKET}/${APIM_MIGRATION_S3_KEY}" \
+            ".github/MIGRATION_RESOURCES/apim-migration.zip"
+          
+          if [ ! -f ".github/MIGRATION_RESOURCES/apim-migration.zip" ]; then
+            echo "ERROR: Failed to download APIM migration client"
+            exit 1
+          fi
+          
+          echo "✓ APIM migration client downloaded successfully"
+          ls -lh ".github/MIGRATION_RESOURCES/apim-migration.zip"
+
+      - name: Extract IS Migration Resources
+        run: |
+          echo "=== Extracting IS Migration Resources ==="
+          unzip -q .github/MIGRATION_RESOURCES/identity-migration.zip \
+            -d .github/MIGRATION_RESOURCES/identity-migration
+          echo "✓ IS migration resources extracted"
+
+      - name: Extract APIM Migration Resources
+        run: |
+          echo "=== Extracting APIM Migration Resources ==="
+          unzip -q .github/MIGRATION_RESOURCES/apim-migration.zip \
+            -d .github/MIGRATION_RESOURCES/apim-migration
+          echo "✓ APIM migration resources extracted"
 
       - name: Identity Migration - Copy Resources and Run
         run: |
