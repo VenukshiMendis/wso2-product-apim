@@ -1025,22 +1025,6 @@ jobs:
             echo ""
             echo "Identity migration run completed"
 
-      - name: APIM Migration - Download and Setup
-        env:
-          APIM_MIGRATION_S3_URL: "https://apim-migration-test-resources.s3.us-east-1.amazonaws.com/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
-        run: |
-          echo "=== Step 3: APIM Migration Setup ==="
-          
-          # Download APIM migration zip
-          echo "Downloading APIM migration resources..."
-          mkdir -p .github/MIGRATION_RESOURCES
-          curl -fSL "$APIM_MIGRATION_S3_URL" -o .github/MIGRATION_RESOURCES/apim-migration.zip
-          
-          # Unzip
-          unzip -q .github/MIGRATION_RESOURCES/apim-migration.zip -d .github/MIGRATION_RESOURCES/apim-migration
-          
-          echo "APIM migration resources downloaded and extracted"
-
       - name: APIM Migration - Pre-Migration
         run: |
           echo "=== Step 4: APIM Pre-Migration ==="
