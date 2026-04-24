@@ -842,7 +842,7 @@ jobs:
           echo "=== Downloading IS Migration Client from S3 ==="
           mkdir -p .github/MIGRATION_RESOURCES
           
-          echo "Downloading s3://${S3_BUCKET}/${IS_MIGRATION_S3_KEY}..."
+          echo "Downloading ${IS_MIGRATION_S3_KEY}..."
           aws s3 cp "s3://${S3_BUCKET}/${IS_MIGRATION_S3_KEY}" \
             ".github/MIGRATION_RESOURCES/identity-migration.zip"
           
@@ -862,7 +862,7 @@ jobs:
           echo "=== Downloading APIM Migration Client from S3 ==="
           mkdir -p .github/MIGRATION_RESOURCES
           
-          echo "Downloading s3://${S3_BUCKET}/${APIM_MIGRATION_S3_KEY}..."
+          echo "Downloading ${APIM_MIGRATION_S3_KEY}..."
           aws s3 cp "s3://${S3_BUCKET}/${APIM_MIGRATION_S3_KEY}" \
             ".github/MIGRATION_RESOURCES/apim-migration.zip"
           
