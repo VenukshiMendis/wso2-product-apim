@@ -1,24 +1,14 @@
-name: APIM Database Migration Tests S3
+name: APIM Database Migration Tests from s3
 
 on:
   workflow_dispatch: {}
   schedule:
-    # Run nightly at 00:00 UTC
+    # Run nightly build at 00:00 UTC
     - cron: '0 0 * * *'
-
-env:
-  # ========================================================================
-  # MIGRATION CLIENT S3 URIs & AWS REGION
-  # Easily change these URIs to test different versions of migration clients.
-  # Note: Since we are using authentication, these must be in 's3://' format.
-  # ========================================================================
-  IDENTITY_MIGRATION_S3_URI: "s3://migration-clients-s3-bucket/wso2is-migration-1.1.179-SNAPSHOT.zip"
-  APIM_MIGRATION_S3_URI: "s3://migration-clients-s3-bucket/wso2am-migration-4.7.0.1-SNAPSHOT.zip"
-  AWS_REGION: "us-east-1"
 
 jobs:
   update-and-build:
-    runs-on: codebuild-wso2_product-apim-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: ubuntu-latest
 
     permissions:
       contents: write
@@ -111,7 +101,11 @@ jobs:
   prepare-and-migrate:
     needs: update-and-build
     name: prepare-and-migrate - ${{ matrix.display_name }}
-    runs-on: codebuild-wso2_product-apim-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -178,6 +172,12 @@ jobs:
       SHARED_DATABASE_VALIDATION_QUERY: ${{ matrix.validation_query }}
 
     steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
       - name: Start Database Containers
         run: |
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
@@ -432,7 +432,7 @@ jobs:
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
             echo "Waiting for MySQL databases..."
             for i in {1..60}; do
-              if mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -prootpass --silent 2>/dev/null; then
+              if docker exec apim_db mysqladmin ping -h localhost -uroot -prootpass --silent 2>/dev/null; then
                 echo "apim_db is ready"
                 break
               fi
@@ -447,7 +447,7 @@ jobs:
             done
           
             for i in {1..60}; do
-              if mysqladmin ping -h 127.0.0.1 -P 3307 -uroot -prootpass --silent 2>/dev/null; then
+              if docker exec shared_db mysqladmin ping -h localhost -uroot -prootpass --silent 2>/dev/null; then
                 echo "shared_db is ready"
                 break
               fi
@@ -461,11 +461,11 @@ jobs:
               sleep 2
             done
           
-            # Configure APIM database using -e flag
-            mysql -h 127.0.0.1 -P 3306 -uroot -prootpass -e "ALTER DATABASE WSO2AM_APIMGT_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
+            # Configure APIM database using docker exec
+            docker exec apim_db mysql -uroot -prootpass -e "ALTER DATABASE WSO2AM_APIMGT_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
           
-            # Configure Shared database using -e flag
-            mysql -h 127.0.0.1 -P 3307 -uroot -prootpass -e "ALTER DATABASE WSO2AM_COMMON_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
+            # Configure Shared database using docker exec
+            docker exec shared_db mysql -uroot -prootpass -e "ALTER DATABASE WSO2AM_COMMON_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
           
             echo "MySQL databases configured successfully"
           
@@ -833,34 +833,39 @@ jobs:
           echo "Docker image built successfully"
           docker images | grep wso2am-migration || true
 
-
-      # Configure AWS Credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
 
-      - name: Identity Migration - Download and Setup
+      - name: Download Migration Clients from S3
         run: |
-          echo "=== Step 1: Identity Migration Setup ==="
-          
-          # Download Identity migration zip using AWS CLI instead of curl
-          echo "Downloading Identity migration resources from $IDENTITY_MIGRATION_S3_URI ..."
+          echo "=== Step 1: Fetching Migration Clients from S3 ==="
           mkdir -p .github/MIGRATION_RESOURCES
-          aws s3 cp "$IDENTITY_MIGRATION_S3_URI" .github/MIGRATION_RESOURCES/identity-migration.zip
           
-          # Unzip
-          unzip -q .github/MIGRATION_RESOURCES/identity-migration.zip -d .github/MIGRATION_RESOURCES/identity-migration
+          # Find and download the latest APIM migration zip
+          APIM_ZIP=$(aws s3 ls "s3://${{ secrets.S3_BUCKET_NAME }}/migration_clients/" | grep "wso2am-migration-" | awk '{print $4}' | sort -V | tail -n1)
+          if [ -z "$APIM_ZIP" ]; then echo "APIM migration zip not found in S3"; exit 1; fi
+          echo "Downloading $APIM_ZIP..."
+          aws s3 cp "s3://${{ secrets.S3_BUCKET_NAME }}/migration_clients/$APIM_ZIP" .github/MIGRATION_RESOURCES/apim-migration.zip
           
-          echo "Identity migration resources downloaded and extracted"
+          # Find and download the latest IS migration zip
+          IS_ZIP=$(aws s3 ls "s3://${{ secrets.S3_BUCKET_NAME }}/migration_clients/" | grep "wso2is-migration-" | awk '{print $4}' | sort -V | tail -n1)
+          if [ -z "$IS_ZIP" ]; then echo "IS migration zip not found in S3"; exit 1; fi
+          echo "Downloading $IS_ZIP..."
+          aws s3 cp "s3://${{ secrets.S3_BUCKET_NAME }}/migration_clients/$IS_ZIP" .github/MIGRATION_RESOURCES/identity-migration.zip
+
 
       - name: Identity Migration - Copy Resources and Run
         run: |
-          echo "=== Step 2: Identity Migration Execution ==="
+          echo "=== Step 2:Identity Migration Execution ==="
           
-          # First, verify the extracted structure locally
+          # Extract the downloaded zip
+          unzip -q .github/MIGRATION_RESOURCES/identity-migration.zip -d .github/MIGRATION_RESOURCES/identity-migration
+          echo "Extracted Identity migration resources"
+
+          # Verify the extracted structure locally
           echo "=== Verifying extracted migration zip structure ==="
           find .github/MIGRATION_RESOURCES/identity-migration -type f -name "migration-config.yaml" | head -5
           find .github/MIGRATION_RESOURCES/identity-migration -type d -name "migration-resources" | head -5
@@ -993,25 +998,14 @@ jobs:
             echo ""
             echo "Identity migration run completed"
 
-      - name: APIM Migration - Download and Setup
-        run: |
-          echo "=== Step 3: APIM Migration Setup ==="
-          
-          # Download APIM migration zip using AWS CLI instead of curl
-          echo "Downloading APIM migration resources from $APIM_MIGRATION_S3_URI ..."
-          mkdir -p .github/MIGRATION_RESOURCES
-          aws s3 cp "$APIM_MIGRATION_S3_URI" .github/MIGRATION_RESOURCES/apim-migration.zip
-          
-          # Unzip
-          unzip -q .github/MIGRATION_RESOURCES/apim-migration.zip -d .github/MIGRATION_RESOURCES/apim-migration
-          
-          echo "APIM migration resources downloaded and extracted"
-
       - name: APIM Migration - Pre-Migration
         run: |
-          echo "=== Step 4: APIM Pre-Migration ==="
+          echo "=== Step 3: APIM Pre-Migration ==="
           
-          # First, verify the extracted structure locally
+          # Extract the downloaded zip
+          unzip -q .github/MIGRATION_RESOURCES/apim-migration.zip -d .github/MIGRATION_RESOURCES/apim-migration
+          
+          # verify the extracted structure locally
           echo "=== Verifying extracted APIM migration zip structure ==="
           find .github/MIGRATION_RESOURCES/apim-migration -type f -name "migration-config.yaml" | head -5
           find .github/MIGRATION_RESOURCES/apim-migration -type d -name "migration-resources" | head -5
@@ -1136,7 +1130,7 @@ jobs:
 
       - name: APIM Migration - Run Migration
         run: |
-          echo "=== Step 5: APIM Migration ==="
+          echo "=== Step 4: APIM Migration ==="
           
           # First, verify the extracted structure locally
           echo "=== Verifying extracted APIM migration zip structure ==="
@@ -1270,7 +1264,7 @@ jobs:
 
       - name: Re-indexing - Configure and Run
         run: |
-          echo "=== Step 6: Re-indexing API Artifacts ==="
+          echo "=== Step 5: Re-indexing API Artifacts ==="
           
           # Start container in detached mode
           CONTAINER_ID=$(docker run -d \
@@ -1492,7 +1486,7 @@ jobs:
           echo "=============================================="
           echo ""
           
-          echo "Applying MSSQL concurrency fix..."   
+          echo "Applying MSSQL concurrency fix..."    
           if [ "${{ matrix.db_type }}" == "mssql" ]; then
             echo "Enabling READ_COMMITTED_SNAPSHOT just before tests to prevent deadlocks..."
             docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE apim_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
@@ -1530,7 +1524,7 @@ jobs:
 
   version-bump:
     needs: [update-and-build, prepare-and-migrate]
-    runs-on: codebuild-wso2_product-apim-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
