@@ -80,6 +80,14 @@ jobs:
           fi
           echo "dist_path=$DIST_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Upload APIM distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apim-distribution
+          path: ${{ steps.find_dist.outputs.dist_path }}
+          retention-days: 7
+          if-no-files-found: error
+
   prepare-and-migrate:
     needs: update-and-build
     name: prepare-and-migrate - ${{ matrix.display_name }}
