@@ -80,14 +80,6 @@ jobs:
           fi
           echo "dist_path=$DIST_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APIM distribution artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: apim-distribution
-          path: ${{ steps.find_dist.outputs.dist_path }}
-          retention-days: 7
-          if-no-files-found: error
-
   prepare-and-migrate:
     needs: update-and-build
     name: prepare-and-migrate - ${{ matrix.display_name }}
@@ -416,6 +408,48 @@ jobs:
 
           # Docker is already available in GitHub Actions runners
           docker --version
+
+      - name: Build Docker image for APIM
+        env:
+          APIM_SERVER_NAME: wso2am
+        run: |
+          set -e
+          
+          # Relaxed the search to wso2am-*.zip
+          DIST_PATH=$(find all-in-one-apim/modules/distribution/product/target \
+            -maxdepth 1 -type f -name "wso2am-*.zip" | head -n1)
+          if [ -z "$DIST_PATH" ]; then
+            echo "Distribution zip not found in all-in-one-apim/modules/distribution/product/target"
+            exit 1
+          fi
+
+          echo "Using APIM distribution: $DIST_PATH"
+
+          # Start a temporary HTTP server to expose the zip
+          DIST_DIR="all-in-one-apim/modules/distribution/product/target"
+          cd "$DIST_DIR"
+          python3 -m http.server 8000 &
+          SERVER_PID=$!
+          cd - >/dev/null
+
+          sleep 3
+
+          ZIP_NAME=$(basename "$DIST_PATH")
+          DOCKER_EXTRA_HOSTS="--add-host=host.docker.internal:host-gateway"
+
+          # Build Docker image using official docker-apim Ubuntu Dockerfile,
+          docker build \
+            $DOCKER_EXTRA_HOSTS \
+            https://github.com/wso2/docker-apim.git#master:dockerfiles/ubuntu/apim \
+            -t wso2am-migration:latest \
+            --build-arg WSO2_SERVER="${APIM_SERVER_NAME}" \
+            --build-arg WSO2_SERVER_DIST_URL="http://host.docker.internal:8000/${ZIP_NAME}"
+
+          # Stop the temporary HTTP server
+          kill "$SERVER_PID" || true
+
+          echo "Docker image built successfully"
+          docker images | grep wso2am-migration || true
 
       - name: Wait for DBs to be ready
         run: |
@@ -781,47 +815,6 @@ jobs:
           
           echo "DB script executed successfully"
 
-      - name: Build Docker image for APIM
-        env:
-          APIM_SERVER_NAME: wso2am
-        run: |
-          set -e
-
-          # Find the locally built APIM distribution zip
-          DIST_PATH=$(find all-in-one-apim/modules/distribution/product/target \
-            -maxdepth 1 -type f -name "wso2am-*-SNAPSHOT.zip" | head -n1)
-          if [ -z "$DIST_PATH" ]; then
-            echo "Distribution zip not found in all-in-one-apim/modules/distribution/product/target"
-            exit 1
-          fi
-
-          echo "Using APIM distribution: $DIST_PATH"
-
-          # Start a temporary HTTP server to expose the zip
-          DIST_DIR="all-in-one-apim/modules/distribution/product/target"
-          cd "$DIST_DIR"
-          python3 -m http.server 8000 &
-          SERVER_PID=$!
-          cd - >/dev/null
-
-          sleep 3
-
-          ZIP_NAME=$(basename "$DIST_PATH")
-          DOCKER_EXTRA_HOSTS="--add-host=host.docker.internal:host-gateway"
-
-          # Build Docker image using official docker-apim Ubuntu Dockerfile,
-          docker build \
-            $DOCKER_EXTRA_HOSTS \
-            https://github.com/wso2/docker-apim.git#master:dockerfiles/ubuntu/apim \
-            -t wso2am-migration:latest \
-            --build-arg WSO2_SERVER="${APIM_SERVER_NAME}" \
-            --build-arg WSO2_SERVER_DIST_URL="http://host.docker.internal:8000/${ZIP_NAME}"
-
-          # Stop the temporary HTTP server
-          kill "$SERVER_PID" || true
-
-          echo "Docker image built successfully"
-          docker images | grep wso2am-migration || true
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
