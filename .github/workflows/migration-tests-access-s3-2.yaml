@@ -1,95 +1,15 @@
-name: APIM Database Migration Tests from s3
+name: APIM Database Migration Tests from s3 2
 
 on:
   workflow_dispatch:
     inputs:
-      pack_url:
-        description: 'Direct URL to download the APIM distribution zip'
-        required: false
+      apim_pack_url:
+        description: "APIM distribution pack URL"
+        required: true
         type: string
-  schedule:
-    # Run nightly build at 00:00 UTC
-    - cron: '0 0 * * *'
-
-env:
-  # Fallback URL used if no input is provided (e.g., during scheduled nightly runs)
-  DEFAULT_PACK_URL: "https://your-server-or-s3-bucket.com/wso2am-4.7.0-SNAPSHOT.zip"
 
 jobs:
-  update-and-build:
-    runs-on: codebuild-codebuil-project-1-${{ github.run_id }}-${{ github.run_attempt }}
-
-    permissions:
-      contents: write
-
-    outputs:
-      latest_version: ${{ env.LATEST_CARBON_APIMGT_VERSION }}
-      current_version: ${{ env.CURRENT_CARBON_APIMGT_VERSION }}
-      dist_path: ${{ steps.find_dist.outputs.dist_path }}
-
-    env:
-      CARBON_APIMGT_REPO: https://github.com/wso2/carbon-apimgt.git
-      CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
-
-    steps:
-      - name: Checkout product-apim
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-
-      - name: Download APIM distribution
-        run: |
-          echo "Downloading APIM distribution pack instead of building from source..."
-          mkdir -p all-in-one-apim/modules/distribution/product/target
-          
-          # Use provided input URL or fallback to the default env variable
-          PACK_URL="${{ github.event.inputs.pack_url }}"
-          if [ -z "$PACK_URL" ]; then
-            PACK_URL="${{ env.DEFAULT_PACK_URL }}"
-          fi
-          
-          echo "Fetching from URL: $PACK_URL"
-          wget -q --show-progress -O temp_download.zip "$PACK_URL"
-          
-          # Ensure the filename conforms to wso2am-*-SNAPSHOT.zip so downstream steps don't break
-          ORIGINAL_NAME=$(basename "$PACK_URL" | grep -o 'wso2am-.*\.zip' || echo "")
-          if [[ "$ORIGINAL_NAME" == *"SNAPSHOT.zip" ]]; then
-            FINAL_NAME="$ORIGINAL_NAME"
-          else
-            FINAL_NAME="wso2am-downloaded-SNAPSHOT.zip"
-          fi
-          
-          mv temp_download.zip "all-in-one-apim/modules/distribution/product/target/$FINAL_NAME"
-          echo "Pack saved successfully as: $FINAL_NAME"
-
-      - name: Find downloaded APIM distribution
-        id: find_dist
-        run: |
-          DIST_PATH=$(find all-in-one-apim/modules/distribution/product/target \
-            -maxdepth 1 -type f -name "wso2am-*-SNAPSHOT.zip" | head -n1)
-          if [ -z "$DIST_PATH" ]; then
-            echo "Distribution zip (wso2am-*-SNAPSHOT.zip) not found"
-            exit 1
-          fi
-          echo "dist_path=$DIST_PATH" >> "$GITHUB_OUTPUT"
-
-      - name: Upload APIM distribution artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: apim-distribution
-          path: ${{ steps.find_dist.outputs.dist_path }}
-          retention-days: 7
-          if-no-files-found: error
-
   prepare-and-migrate:
-    needs: update-and-build
     name: prepare-and-migrate - ${{ matrix.display_name }}
     runs-on: codebuild-codebuil-project-1-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -290,18 +210,30 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Download APIM distribution artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: apim-distribution
-          path: ./artifacts
+      - name: Download APIM distribution from workflow input URL
+        run: |
+          set -e
+          mkdir -p artifacts
+
+          echo "Downloading APIM pack from provided URL..."
+          wget -q --show-progress \
+            -O artifacts/wso2am-pack.zip \
+            "${{ github.event.inputs.apim_pack_url }}"
+
+          if [ ! -s artifacts/wso2am-pack.zip ]; then
+            echo "Downloaded APIM pack is empty or missing"
+            exit 1
+          fi
+
+          echo "Downloaded APIM pack successfully"
+          ls -lh artifacts/
 
       - name: Find and extract distribution archive
         run: |
-          # Look for wso2am-*-SNAPSHOT.zip 
-          DIST_ARCHIVE=$(find artifacts -name "wso2am-*-SNAPSHOT.zip" | head -n1)
+          # Look for wso2am-*-SNAPSHOT.zip (built from master branch)
+          DIST_ARCHIVE=$(find artifacts -name "*.zip" | head -n1)
           if [ -z "$DIST_ARCHIVE" ]; then
-            echo "wso2am-*-SNAPSHOT.zip not found in artifacts"
+            echo "APIM distribution zip not found in artifacts"
             ls -la artifacts/
             exit 1
           fi
@@ -313,7 +245,7 @@ jobs:
           mkdir -p unpacked-dist
           unzip -q "$DIST_ARCHIVE" -d unpacked-dist
           
-          # Find the extracted directory
+          # Find the extracted directory (should be wso2am-4.6.0-SNAPSHOT)
           EXTRACTED_DIR=$(find unpacked-dist -maxdepth 1 -type d -name "wso2am-*" | head -n1)
           if [ -z "$EXTRACTED_DIR" ]; then
             echo "Extracted directory not found"
@@ -365,6 +297,7 @@ jobs:
           cp "$DEPLOYMENT_TOML" "$DEPLOYMENT_TOML.backup"
           
           # Read the original file and remove existing sections
+          # Remove existing database.apim_db, database.shared_db, apim.gateway.environment, and apim.sync_runtime_artifacts.gateway sections
           awk '
             /^\[database\.apim_db\]/ { skip=1; next }
             /^\[database\.shared_db\]/ { skip=1; next }
@@ -1511,45 +1444,3 @@ jobs:
             all-in-one-apim/modules/integration-v2/tests-integration/**/target/cucumber-report/**
           retention-days: 7
           if-no-files-found: warn
-
-  version-bump:
-    needs: [update-and-build, prepare-and-migrate]
-    runs-on: codebuild-codebuil-project-1-${{ github.run_id }}-${{ github.run_attempt }}
-
-    permissions:
-      contents: write
-    env:
-      CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
-    steps:
-      - name: Checkout build branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-          fetch-depth: 0
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-
-      - name: Update pom.xml and push version bump
-        if: needs.update-and-build.outputs.latest_version != '' && needs.update-and-build.outputs.latest_version != needs.update-and-build.outputs.current_version
-        working-directory: all-in-one-apim
-        run: |
-          LATEST="${{ needs.update-and-build.outputs.latest_version }}"
-          echo "Bumping ${CARBON_APIMGT_VERSION_PROPERTY} from ${{ needs.update-and-build.outputs.current_version }} to $LATEST"
-          mvn -B \
-            org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
-            -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
-            -DnewVersion=$LATEST \
-            -DgenerateBackupPoms=false
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git commit -am "chore: bump carbon-apimgt to $LATEST"
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
