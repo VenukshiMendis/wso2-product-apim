@@ -1445,12 +1445,13 @@ jobs:
           echo ""
           
           echo "=== Final file check before Maven ==="
-          ZIP_PATH=$(find ../distribution/product/target -maxdepth 1 -name "wso2am-*-SNAPSHOT.zip" 2>/dev/null | head -n1)
+          # Changed to wso2am-*.zip to support both SNAPSHOT and GA releases
+          ZIP_PATH=$(find ../distribution/product/target -maxdepth 1 -name "wso2am-*.zip" 2>/dev/null | head -n1)
           if [ -n "$ZIP_PATH" ] && [ -f "$ZIP_PATH" ]; then
             echo "✓ File exists before Maven execution"
             ls -lh "$ZIP_PATH"
           else
-            echo "✗ ERROR: wso2am-*-SNAPSHOT.zip not found in distribution/product/target"
+            echo "✗ ERROR: wso2am-*.zip not found in distribution/product/target"
             exit 1
           fi
 
