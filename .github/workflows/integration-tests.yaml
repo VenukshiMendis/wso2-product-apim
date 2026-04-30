@@ -1,0 +1,566 @@
+name: APIM Default Integration Tests
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Run nightly build at 00:00 UTC
+    - cron: '0 0 * * *'
+
+jobs:
+  update-and-build:
+    runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
+
+    permissions:
+      contents: write
+
+    outputs:
+      latest_version: ${{ env.LATEST_CARBON_APIMGT_VERSION }}
+      current_version: ${{ env.CURRENT_CARBON_APIMGT_VERSION }}
+      dist_path: ${{ steps.find_dist.outputs.dist_path }}
+
+    env:
+      CARBON_APIMGT_REPO: https://github.com/wso2/carbon-apimgt.git
+      CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
+
+    steps:
+      - name: Checkout product-apim
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Find latest carbon-apimgt version tag
+        id: find_version
+        run: |
+          git ls-remote --tags "$CARBON_APIMGT_REPO" \
+            | awk '{print $2}' \
+            | grep -E 'refs/tags/v?[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sed 's#refs/tags/##' \
+            | sed 's/^v//' \
+            | sort -V \
+             | tail -n41 | head -n1 > latest_carbon_apimgt_version.txt
+
+          LATEST=$(cat latest_carbon_apimgt_version.txt)
+          echo "Latest carbon-apimgt version: $LATEST"
+          echo "LATEST_CARBON_APIMGT_VERSION=$LATEST" >> $GITHUB_ENV
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+
+      - name: Read current carbon-apimgt version from Maven
+        working-directory: all-in-one-apim
+        run: |
+          CURRENT=$(mvn -q \
+            -Dexpression=${CARBON_APIMGT_VERSION_PROPERTY} \
+            -DforceStdout \
+            help:evaluate 2>/dev/null || true)
+
+          echo "Current carbon-apimgt version: $CURRENT"
+          echo "CURRENT_CARBON_APIMGT_VERSION=$CURRENT" >> $GITHUB_ENV
+
+      - name: Update pom.xml with latest carbon-apimgt version
+        if: env.LATEST_CARBON_APIMGT_VERSION != '' && env.LATEST_CARBON_APIMGT_VERSION != env.CURRENT_CARBON_APIMGT_VERSION
+        working-directory: all-in-one-apim
+        run: |
+          echo "Updating ${CARBON_APIMGT_VERSION_PROPERTY} from ${CURRENT_CARBON_APIMGT_VERSION} to ${LATEST_CARBON_APIMGT_VERSION}"
+
+          mvn -B \
+            org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
+            -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
+            -DnewVersion=${LATEST_CARBON_APIMGT_VERSION} \
+            -DgenerateBackupPoms=false
+
+      - name: Build APIM distribution
+        working-directory: all-in-one-apim
+        run: |
+          mvn -B clean install -Dmaven.test.skip=true
+
+      - name: Find built APIM distribution
+        id: find_dist
+        run: |
+          DIST_PATH=$(find all-in-one-apim/modules/distribution/product/target \
+            -maxdepth 1 -type f -name "wso2am-*-SNAPSHOT.zip" | head -n1)
+          if [ -z "$DIST_PATH" ]; then
+            echo "Distribution zip (wso2am-*-SNAPSHOT.zip) not found"
+            exit 1
+          fi
+          echo "dist_path=$DIST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APIM distribution artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apim-distribution
+          path: ${{ steps.find_dist.outputs.dist_path }}
+          retention-days: 7
+          if-no-files-found: error
+
+  run-integration-tests:
+    needs: update-and-build
+    name: integration-tests - ${{ matrix.display_name }}
+    runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - db_type: mysql
+            display_name: "MySQL"
+            apim_url: "jdbc:mysql://host.docker.internal:3306/WSO2AM_APIMGT_DB?allowPublicKeyRetrieval=true&amp;useSSL=false"
+            shared_url: "jdbc:mysql://host.docker.internal:3307/WSO2AM_COMMON_DB?allowPublicKeyRetrieval=true&amp;useSSL=false"
+            driver_class: "com.mysql.cj.jdbc.Driver"
+            validation_query: "SELECT 1"
+            apim_username: "apim_user"
+            shared_username: "shared_user"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
+
+          - db_type: mssql
+            display_name: "MSSQL"
+            apim_url: "jdbc:sqlserver://host.docker.internal:1433;databaseName=apim_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=shared_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            driver_class: "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+            validation_query: "SELECT 1"
+            apim_username: "apim_user"
+            shared_username: "shared_user"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
+
+          - db_type: postgre
+            display_name: "PostgreSQL"
+            apim_url: "jdbc:postgresql://host.docker.internal:5432/apim_db"
+            shared_url: "jdbc:postgresql://host.docker.internal:5433/shared_db"
+            driver_class: "org.postgresql.Driver"
+            validation_query: "SELECT 1"
+            apim_username: "apim_user"
+            shared_username: "shared_user"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
+
+          - db_type: oracle
+            display_name: "Oracle"
+            apim_url: "jdbc:oracle:thin:@host.docker.internal:1521/XEPDB1"
+            shared_url: "jdbc:oracle:thin:@host.docker.internal:1522/XEPDB1"
+            driver_class: "oracle.jdbc.OracleDriver"
+            validation_query: "SELECT 1 FROM DUAL"
+            apim_username: "APIM_DB_USER"
+            shared_username: "SHARED_DB_USER"
+            apim_password: "apimpass"
+            shared_password: "sharedpass"
+
+    env:
+      # API Manager Database (apim_db)
+      API_MANAGER_DATABASE_TYPE: ${{ matrix.db_type }}
+      API_MANAGER_DATABASE_DRIVER: ${{ matrix.driver_class }}
+      API_MANAGER_DATABASE_URL: ${{ matrix.apim_url }}
+      API_MANAGER_DATABASE_USERNAME: ${{ matrix.apim_username }}
+      API_MANAGER_DATABASE_PASSWORD: ${{ matrix.apim_password }}
+      API_MANAGER_DATABASE_VALIDATION_QUERY: ${{ matrix.validation_query }}
+
+      # Shared Database (shared_db)
+      SHARED_DATABASE_TYPE: ${{ matrix.db_type }}
+      SHARED_DATABASE_DRIVER: ${{ matrix.driver_class }}
+      SHARED_DATABASE_URL: ${{ matrix.shared_url }}
+      SHARED_DATABASE_USERNAME: ${{ matrix.shared_username }}
+      SHARED_DATABASE_PASSWORD: ${{ matrix.shared_password }}
+      SHARED_DATABASE_VALIDATION_QUERY: ${{ matrix.validation_query }}
+
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Start Database Containers
+        run: |
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+          
+            docker run -d --name apim_db \
+              -e MYSQL_ROOT_PASSWORD=rootpass \
+              -e MYSQL_DATABASE=WSO2AM_APIMGT_DB \
+              -e MYSQL_USER=apim_user \
+              -e MYSQL_PASSWORD=apimpass \
+              -p 3306:3306 mysql:8.0
+          
+            docker run -d --name shared_db \
+              -e MYSQL_ROOT_PASSWORD=rootpass \
+              -e MYSQL_DATABASE=WSO2AM_COMMON_DB \
+              -e MYSQL_USER=shared_user \
+              -e MYSQL_PASSWORD=sharedpass \
+              -p 3307:3306 mysql:8.0
+          
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            echo "Starting Azure SQL Edge for APIM DB..."
+            docker run -d --name apim_db \
+              -e ACCEPT_EULA="Y" \
+              -e MSSQL_SA_PASSWORD='RootPass123!' \
+              -e MSSQL_PID="Developer" \
+              -p 1433:1433 \
+              mcr.microsoft.com/azure-sql-edge
+
+            echo "Starting Azure SQL Edge for Shared DB..."
+            docker run -d --name shared_db \
+              -e ACCEPT_EULA="Y" \
+              -e MSSQL_SA_PASSWORD='RootPass123!' \
+              -e MSSQL_PID="Developer" \
+              -p 1434:1433 \
+              mcr.microsoft.com/azure-sql-edge
+          
+            # Wait until SQL Edge accepts connections before running DDL
+            for i in {1..60}; do
+              if docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+                break
+              fi
+              echo "Waiting for apim_db SQL Edge startup... ($i/60)"
+              sleep 2
+            done
+            if ! docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+              echo "ERROR: apim_db failed to start within timeout"
+              exit 1
+            fi
+
+            for i in {1..60}; do
+              if docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+                break
+              fi
+              echo "Waiting for shared_db SQL Edge startup... ($i/60)"
+              sleep 2
+            done
+            if ! docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" >/dev/null 2>&1; then
+              echo "ERROR: shared_db failed to start within timeout"
+              exit 1
+            fi
+          
+            echo "Creating APIM Database and Login..."
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE apim_db; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass', CHECK_POLICY = OFF;"
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -Q "CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
+          
+            echo "Creating Shared Database and Login..."
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE shared_db; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass', CHECK_POLICY = OFF;"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -Q "CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            echo "Starting PostgreSQL for APIM DB..."
+            docker run -d --name apim_db \
+              -e POSTGRES_DB=apim_db \
+              -e POSTGRES_USER=apim_user \
+              -e POSTGRES_PASSWORD=apimpass \
+              -p 5432:5432 postgres:14
+          
+            echo "Starting PostgreSQL for Shared DB..."
+            docker run -d --name shared_db \
+              -e POSTGRES_DB=shared_db \
+              -e POSTGRES_USER=shared_user \
+              -e POSTGRES_PASSWORD=sharedpass \
+              -p 5433:5432 postgres:14
+          
+          elif [ "${{ matrix.db_type }}" == "oracle" ]; then
+            echo "Starting Oracle XE for APIM DB..."
+            docker run -d --name apim_db \
+              -p 1521:1521 \
+              -e ORACLE_PASSWORD=rootpass \
+              -e APP_USER=APIM_DB_USER \
+              -e APP_USER_PASSWORD=apimpass \
+              gvenzl/oracle-xe:21-slim-faststart
+          
+            echo "Starting Oracle XE for Shared DB..."
+            docker run -d --name shared_db \
+              -p 1522:1521 \
+              -e ORACLE_PASSWORD=rootpass \
+              -e APP_USER=SHARED_DB_USER \
+              -e APP_USER_PASSWORD=sharedpass \
+              gvenzl/oracle-xe:21-slim-faststart
+          fi
+
+      - name: Checkout master-new-test-framework branch
+        uses: actions/checkout@v4
+        with:
+          ref: master-new-test-framework
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Download APIM distribution artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: apim-distribution
+          path: ./artifacts
+
+      - name: Find and extract distribution archive
+        run: |
+          DIST_ARCHIVE=$(find artifacts -name "wso2am-*-SNAPSHOT.zip" | head -n1)
+          if [ -z "$DIST_ARCHIVE" ]; then
+            echo "wso2am-*-SNAPSHOT.zip not found in artifacts"
+            exit 1
+          fi
+          
+          echo "Found archive: $DIST_ARCHIVE"
+          echo "DIST_ARCHIVE=$DIST_ARCHIVE" >> $GITHUB_ENV
+          
+          mkdir -p unpacked-dist
+          unzip -q "$DIST_ARCHIVE" -d unpacked-dist
+          
+          EXTRACTED_DIR=$(find unpacked-dist -maxdepth 1 -type d -name "wso2am-*" | head -n1)
+          if [ -z "$EXTRACTED_DIR" ]; then
+            echo "Extracted directory not found"
+            exit 1
+          fi
+          echo "EXTRACTED_DIR=$EXTRACTED_DIR" >> $GITHUB_ENV
+
+      - name: Add JDBC driver to distribution
+        run: |
+          REPO_LIB_DIR="$EXTRACTED_DIR/repository/components/lib"
+          
+          mkdir -p "$REPO_LIB_DIR"
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            wget -q -O mysql-connector-java-8.0.30.jar "https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar"
+            mv mysql-connector-java-8.0.30.jar "$REPO_LIB_DIR"
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            wget -q -O mssql-jdbc-12.4.2.jre11.jar "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.4.2.jre11/mssql-jdbc-12.4.2.jre11.jar"
+            mv mssql-jdbc-12.4.2.jre11.jar "$REPO_LIB_DIR"
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            wget -q -O postgresql-42.7.8.jar "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.8/postgresql-42.7.8.jar"
+            mv postgresql-42.7.8.jar "$REPO_LIB_DIR"
+          elif [ "${{ matrix.db_type }}" == "oracle" ]; then
+            wget -q -O ojdbc8-19.23.0.0.jar "https://repo1.maven.org/maven2/com/oracle/database/jdbc/ojdbc8/19.23.0.0/ojdbc8-19.23.0.0.jar"
+            mv ojdbc8-19.23.0.0.jar "$REPO_LIB_DIR"
+          fi
+          echo "JDBC driver added to $REPO_LIB_DIR"
+
+      - name: Replace keystore and truststore of distribution
+        run: |
+          SECURITY_DIR="$EXTRACTED_DIR/repository/resources/security"
+          mkdir -p "$SECURITY_DIR"
+          
+          rm -f "$SECURITY_DIR"/*.jks "$SECURITY_DIR"/*.p12
+          cp all-in-one-apim/modules/integration-v2/client-truststore.jks "$SECURITY_DIR/"
+          cp all-in-one-apim/modules/integration-v2/wso2carbon.jks "$SECURITY_DIR/"
+
+      - name: Configure deployment.toml with database settings
+        run: |
+          DEPLOYMENT_TOML="$EXTRACTED_DIR/repository/conf/deployment.toml"
+          cp "$DEPLOYMENT_TOML" "$DEPLOYMENT_TOML.backup"
+          
+          awk '
+            /^\[database\.apim_db\]/ { skip=1; next }
+            /^\[database\.shared_db\]/ { skip=1; next }
+            /^\[\[apim\.gateway\.environment\]\]/ { skip=1; next }
+            /^\[apim\.sync_runtime_artifacts\.gateway\]/ { skip=1; next }
+            /^\[\[/ && skip { skip=0; print; next }
+            /^\[/ && skip { skip=0; print; next }
+            skip { next }
+            !skip { print }
+          ' "$DEPLOYMENT_TOML.backup" > "$DEPLOYMENT_TOML.tmp"
+
+          cat .github/WORKFLOW_ARTIFACTS/migration-deployment.toml >> "$DEPLOYMENT_TOML.tmp"
+          mv "$DEPLOYMENT_TOML.tmp" "$DEPLOYMENT_TOML"
+
+      - name: Re-zip distribution
+        run: |
+          DIST_NAME=$(basename "$EXTRACTED_DIR")
+          TARGET_DIR="all-in-one-apim/modules/distribution/product/target"
+          mkdir -p "$TARGET_DIR"
+          
+          WORKSPACE=$(pwd)
+          TARGET_PATH="$WORKSPACE/$TARGET_DIR/$DIST_NAME.zip"
+          
+          cd unpacked-dist
+          zip -r "$TARGET_PATH" "$DIST_NAME"
+          cd "$WORKSPACE"
+          
+          if [ ! -f "$TARGET_PATH" ]; then
+            echo "ERROR: Zip file was not created at $TARGET_PATH"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-mysql-client python3 python3-pip
+
+      - name: Wait for DBs to be ready
+        run: |
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
+            echo "Waiting for MySQL databases..."
+            for i in {1..60}; do
+              if docker exec apim_db mysqladmin ping -h localhost -uroot -prootpass --silent 2>/dev/null; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 2
+            done
+            for i in {1..60}; do
+              if docker exec shared_db mysqladmin ping -h localhost -uroot -prootpass --silent 2>/dev/null; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 2
+            done
+          
+            docker exec apim_db mysql -uroot -prootpass -e "ALTER DATABASE WSO2AM_APIMGT_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
+            docker exec shared_db mysql -uroot -prootpass -e "ALTER DATABASE WSO2AM_COMMON_DB CHARACTER SET latin1 COLLATE latin1_swedish_ci;"
+          
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            echo "Waiting for MSSQL databases..."
+            for i in {1..60}; do
+              if docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" &> /dev/null; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 2
+            done
+            for i in {1..60}; do
+              if docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "SELECT 1" &> /dev/null; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 2
+            done
+          
+            echo "Applying MSSQL concurrency fix..."
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE apim_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE shared_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+          
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            echo "Waiting for PostgreSQL databases..."
+            for i in {1..60}; do
+              if docker exec apim_db pg_isready -U apim_user -d apim_db > /dev/null 2>&1; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 2
+            done
+            for i in {1..60}; do
+              if docker exec shared_db pg_isready -U shared_user -d shared_db > /dev/null 2>&1; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 2
+            done
+          
+            docker exec -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -c "ALTER USER apim_user WITH SUPERUSER;"
+            docker exec -e PGPASSWORD=sharedpass shared_db psql -U shared_user -d shared_db -c "ALTER USER shared_user WITH SUPERUSER;"
+          
+          elif [ "${{ matrix.db_type }}" == "oracle" ]; then
+            echo "Waiting for Oracle databases to accept connections..."
+            for i in {1..60}; do
+              if docker exec apim_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba" > /dev/null 2>&1; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 10
+            done
+            for i in {1..60}; do
+              if docker exec shared_db bash -c "echo 'SELECT 1 FROM DUAL;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba" > /dev/null 2>&1; then break; fi
+              if [ $i -eq 60 ]; then exit 1; fi
+              sleep 10
+            done
+          
+            docker exec apim_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO APIM_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba"
+            docker exec shared_db bash -c "echo -e 'GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE TRIGGER, CREATE PROCEDURE TO SHARED_DB_USER;\nEXIT;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba"
+
+            docker exec apim_db bash -c "echo -e 'ALTER SYSTEM SET PROCESSES=500 SCOPE=SPFILE;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
+            docker exec shared_db bash -c "echo -e 'ALTER SYSTEM SET PROCESSES=500 SCOPE=SPFILE;\nEXIT;' | sqlplus -s sys/rootpass as sysdba"
+            docker restart apim_db shared_db
+          
+            for db in apim_db shared_db; do
+              for i in {1..60}; do
+                if docker exec "$db" bash -c "printf '%s\n' 'WHENEVER SQLERROR EXIT SQL.SQLCODE' 'SELECT 1 FROM DUAL;' 'EXIT;' | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba" > /dev/null 2>&1; then break; fi
+                if [ $i -eq 60 ]; then exit 1; fi
+                sleep 10
+              done
+            done
+          fi
+
+      - name: Run Default Integration Tests
+        working-directory: all-in-one-apim/modules/integration-v2
+        env:
+          MAVEN_OPTS: "-Djansi.force=true -Djansi.passthrough=true -Dstyle.color=always"
+          TERM: xterm-256color
+          GATEWAY_ENVIRONMENT: Production and Sandbox
+          APIM_TEST_CONTAINERS_PARALLEL_ENABLED: False
+          PARALLEL_THREAD_COUNT: 1
+          DOCKER_BUILDKIT: 1
+        run: |
+          echo "=== Starting Default Integration Tests ==="
+          
+          ZIP_PATH=$(find ../distribution/product/target -maxdepth 1 -name "wso2am-*-SNAPSHOT.zip" 2>/dev/null | head -n1)
+          if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
+            echo "✗ ERROR: wso2am-*-SNAPSHOT.zip not found in distribution/product/target"
+            exit 1
+          fi
+
+          # Apply the Postgres specific flag if needed
+          ACTUAL_SHARED_URL="$SHARED_DATABASE_URL"
+          if [ "${{ matrix.db_type }}" == "postgre" ]; then
+            ACTUAL_SHARED_URL="${SHARED_DATABASE_URL}?preparedStatementCacheQueries=0"
+          fi
+          
+          CLEAN_SHARED_URL=$(echo "$ACTUAL_SHARED_URL" | sed 's/&amp;/\&/g')
+          CLEAN_APIM_URL=$(echo "$API_MANAGER_DATABASE_URL" | sed 's/&amp;/\&/g')
+
+          # Removed -Pmigration so it runs default tests against empty DBs
+          mvn -B clean install \
+            -DskipBenchMarkTest=true \
+            -DskipRestartTests=true \
+            -Ddocker.extra.hosts="--add-host=host.docker.internal:host-gateway" \
+            -Dshared.database.type="$SHARED_DATABASE_TYPE" \
+            -Dshared.database.driver="$SHARED_DATABASE_DRIVER" \
+            -Dshared.database.url="$CLEAN_SHARED_URL" \
+            -Dshared.database.username="$SHARED_DATABASE_USERNAME" \
+            -Dshared.database.password="$SHARED_DATABASE_PASSWORD" \
+            -Dshared.database.validationQuery="$SHARED_DATABASE_VALIDATION_QUERY" \
+            -Dapim.database.type="$API_MANAGER_DATABASE_TYPE" \
+            -Dapim.database.driver="$API_MANAGER_DATABASE_DRIVER" \
+            -Dapim.database.url="$CLEAN_APIM_URL" \
+            -Dapim.database.username="$API_MANAGER_DATABASE_USERNAME" \
+            -Dapim.database.password="$API_MANAGER_DATABASE_PASSWORD" \
+            -Dapim.database.validationQuery="$API_MANAGER_DATABASE_VALIDATION_QUERY"
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-reports-${{ matrix.db_type }}
+          path: |
+            all-in-one-apim/modules/integration-v2/tests-integration/**/target/surefire-reports/**
+            all-in-one-apim/modules/integration-v2/tests-integration/**/target/cucumber-report/**
+          retention-days: 7
+          if-no-files-found: warn
+
+  version-bump:
+    needs: [update-and-build, run-integration-tests]
+    runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
+    permissions:
+      contents: write
+    env:
+      CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Update pom.xml and push version bump
+        if: needs.update-and-build.outputs.latest_version != '' && needs.update-and-build.outputs.latest_version != needs.update-and-build.outputs.current_version
+        working-directory: all-in-one-apim
+        run: |
+          LATEST="${{ needs.update-and-build.outputs.latest_version }}"
+          echo "Bumping ${CARBON_APIMGT_VERSION_PROPERTY} from ${{ needs.update-and-build.outputs.current_version }} to $LATEST"
+          mvn -B \
+            org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
+            -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
+            -DnewVersion=$LATEST \
+            -DgenerateBackupPoms=false
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -am "chore: bump carbon-apimgt to $LATEST"
+          git push origin HEAD:${GITHUB_REF#refs/heads/}
