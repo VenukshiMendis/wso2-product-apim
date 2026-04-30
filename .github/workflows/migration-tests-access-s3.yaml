@@ -17,7 +17,7 @@ env:
 
 jobs:
   update-and-build:
-    runs-on: codebuild-codebuil-project-1-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
 
     permissions:
       contents: write
@@ -91,7 +91,7 @@ jobs:
   prepare-and-migrate:
     needs: update-and-build
     name: prepare-and-migrate - ${{ matrix.display_name }}
-    runs-on: codebuild-codebuil-project-1-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
 
     permissions:
       id-token: write
@@ -1513,7 +1513,7 @@ jobs:
 
   version-bump:
     needs: [update-and-build, prepare-and-migrate]
-    runs-on: codebuild-codebuil-project-1-${{ github.run_id }}-${{ github.run_attempt }}
+    runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
 
     permissions:
       contents: write
