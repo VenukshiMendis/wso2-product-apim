@@ -56,9 +56,20 @@ jobs:
           fi
           
           echo "Fetching from URL: $PACK_URL"
-          wget -q --show-progress -O temp_download.zip "$PACK_URL"
           
-          # Ensure the filename conforms to wso2am-*-SNAPSHOT.zip so downstream steps don't break
+          # IF IT IS A GOOGLE DRIVE LINK, USE GDOWN
+          if [[ "$PACK_URL" == *"drive.google.com"* ]]; then
+            echo "Google Drive link detected. Installing gdown..."
+            pip3 install gdown
+            # Extract just the ID from the URL and download
+            FILE_ID=$(echo "$PACK_URL" | grep -o 'id=[^&]*' | cut -d= -f2)
+            gdown --id "$FILE_ID" -O temp_download.zip
+          else
+            # Normal direct download
+            wget -q --show-progress -O temp_download.zip "$PACK_URL"
+          fi
+          
+          # Ensure the filename conforms to wso2am-*-SNAPSHOT.zip
           ORIGINAL_NAME=$(basename "$PACK_URL" | grep -o 'wso2am-.*\.zip' || echo "")
           if [[ "$ORIGINAL_NAME" == *"SNAPSHOT.zip" ]]; then
             FINAL_NAME="$ORIGINAL_NAME"
