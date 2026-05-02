@@ -1,0 +1,71 @@
+name: Test Version Bump PR Bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      mock_version:
+        description: 'Mock version to inject into pom.xml'
+        required: true
+        default: '9.9.9'
+        type: string
+
+jobs:
+  test-pr-creation:
+    runs-on: ubuntu-latest # Using standard GitHub runners for maximum speed!
+
+    permissions:
+      contents: write
+      pull-requests: write # REQUIRED for the bot to open a PR
+
+    env:
+      CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
+
+    steps:
+      - name: Checkout product-apim
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Read current carbon-apimgt version from Maven
+        working-directory: all-in-one-apim
+        run: |
+          CURRENT=$(mvn -q \
+            -Dexpression=${CARBON_APIMGT_VERSION_PROPERTY} \
+            -DforceStdout \
+            help:evaluate 2>/dev/null || true)
+
+          echo "Current carbon-apimgt version: $CURRENT"
+          echo "CURRENT_CARBON_APIMGT_VERSION=$CURRENT" >> $GITHUB_ENV
+
+      - name: Update pom.xml with Mock Version
+        working-directory: all-in-one-apim
+        run: |
+          LATEST="${{ github.event.inputs.mock_version }}"
+          echo "Bumping ${CARBON_APIMGT_VERSION_PROPERTY} from ${CURRENT_CARBON_APIMGT_VERSION} to $LATEST"
+          
+          mvn -B \
+            org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
+            -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
+            -DnewVersion=$LATEST \
+            -DgenerateBackupPoms=false
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump carbon-apimgt to ${{ github.event.inputs.mock_version }}"
+          title: "Automated Version Bump Test: carbon-apimgt to ${{ github.event.inputs.mock_version }}"
+          body: |
+            This is a test of the automated PR bot.
+            - **Previous version:** `${{ env.CURRENT_CARBON_APIMGT_VERSION }}`
+            - **New version:** `${{ github.event.inputs.mock_version }}`
+          branch: "bot/test-version-bump"
+          base: "${{ github.ref_name }}"
+          labels: "automated pr, test"
