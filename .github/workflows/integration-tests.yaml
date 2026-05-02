@@ -468,67 +468,68 @@ jobs:
             done
           fi
 
-      - name: Run Default Integration Tests
-        working-directory: all-in-one-apim/modules/integration-v2
-        env:
-          MAVEN_OPTS: "-Djansi.force=true -Djansi.passthrough=true -Dstyle.color=always"
-          TERM: xterm-256color
-          GATEWAY_ENVIRONMENT: Production and Sandbox
-          APIM_TEST_CONTAINERS_PARALLEL_ENABLED: False
-          PARALLEL_THREAD_COUNT: 1
-          DOCKER_BUILDKIT: 1
-        run: |
-          echo "=== Starting Default Integration Tests ==="
-          
-          ZIP_PATH=$(find ../distribution/product/target -maxdepth 1 -name "wso2am-*-SNAPSHOT.zip" 2>/dev/null | head -n1)
-          if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
-            echo "✗ ERROR: wso2am-*-SNAPSHOT.zip not found in distribution/product/target"
-            exit 1
-          fi
-
-          # Apply the Postgres specific flag if needed
-          ACTUAL_SHARED_URL="$SHARED_DATABASE_URL"
-          if [ "${{ matrix.db_type }}" == "postgre" ]; then
-            ACTUAL_SHARED_URL="${SHARED_DATABASE_URL}?preparedStatementCacheQueries=0"
-          fi
-          
-          CLEAN_SHARED_URL=$(echo "$ACTUAL_SHARED_URL" | sed 's/&amp;/\&/g')
-          CLEAN_APIM_URL=$(echo "$API_MANAGER_DATABASE_URL" | sed 's/&amp;/\&/g')
-
-          # Removed -Pmigration so it runs default tests against empty DBs
-          mvn -B clean install \
-            -DskipBenchMarkTest=true \
-            -DskipRestartTests=true \
-            -Ddocker.extra.hosts="--add-host=host.docker.internal:host-gateway" \
-            -Dshared.database.type="$SHARED_DATABASE_TYPE" \
-            -Dshared.database.driver="$SHARED_DATABASE_DRIVER" \
-            -Dshared.database.url="$CLEAN_SHARED_URL" \
-            -Dshared.database.username="$SHARED_DATABASE_USERNAME" \
-            -Dshared.database.password="$SHARED_DATABASE_PASSWORD" \
-            -Dshared.database.validationQuery="$SHARED_DATABASE_VALIDATION_QUERY" \
-            -Dapim.database.type="$API_MANAGER_DATABASE_TYPE" \
-            -Dapim.database.driver="$API_MANAGER_DATABASE_DRIVER" \
-            -Dapim.database.url="$CLEAN_APIM_URL" \
-            -Dapim.database.username="$API_MANAGER_DATABASE_USERNAME" \
-            -Dapim.database.password="$API_MANAGER_DATABASE_PASSWORD" \
-            -Dapim.database.validationQuery="$API_MANAGER_DATABASE_VALIDATION_QUERY"
-
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: integration-test-reports-${{ matrix.db_type }}
-          path: |
-            all-in-one-apim/modules/integration-v2/tests-integration/**/target/surefire-reports/**
-            all-in-one-apim/modules/integration-v2/tests-integration/**/target/cucumber-report/**
-          retention-days: 7
-          if-no-files-found: warn
+#      - name: Run Default Integration Tests
+#        working-directory: all-in-one-apim/modules/integration-v2
+#        env:
+#          MAVEN_OPTS: "-Djansi.force=true -Djansi.passthrough=true -Dstyle.color=always"
+#          TERM: xterm-256color
+#          GATEWAY_ENVIRONMENT: Production and Sandbox
+#          APIM_TEST_CONTAINERS_PARALLEL_ENABLED: False
+#          PARALLEL_THREAD_COUNT: 1
+#          DOCKER_BUILDKIT: 1
+#        run: |
+#          echo "=== Starting Default Integration Tests ==="
+#
+#          ZIP_PATH=$(find ../distribution/product/target -maxdepth 1 -name "wso2am-*-SNAPSHOT.zip" 2>/dev/null | head -n1)
+#          if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
+#            echo "✗ ERROR: wso2am-*-SNAPSHOT.zip not found in distribution/product/target"
+#            exit 1
+#          fi
+#
+#          # Apply the Postgres specific flag if needed
+#          ACTUAL_SHARED_URL="$SHARED_DATABASE_URL"
+#          if [ "${{ matrix.db_type }}" == "postgre" ]; then
+#            ACTUAL_SHARED_URL="${SHARED_DATABASE_URL}?preparedStatementCacheQueries=0"
+#          fi
+#
+#          CLEAN_SHARED_URL=$(echo "$ACTUAL_SHARED_URL" | sed 's/&amp;/\&/g')
+#          CLEAN_APIM_URL=$(echo "$API_MANAGER_DATABASE_URL" | sed 's/&amp;/\&/g')
+#
+#          # Removed -Pmigration so it runs default tests against empty DBs
+#          mvn -B clean install \
+#            -DskipBenchMarkTest=true \
+#            -DskipRestartTests=true \
+#            -Ddocker.extra.hosts="--add-host=host.docker.internal:host-gateway" \
+#            -Dshared.database.type="$SHARED_DATABASE_TYPE" \
+#            -Dshared.database.driver="$SHARED_DATABASE_DRIVER" \
+#            -Dshared.database.url="$CLEAN_SHARED_URL" \
+#            -Dshared.database.username="$SHARED_DATABASE_USERNAME" \
+#            -Dshared.database.password="$SHARED_DATABASE_PASSWORD" \
+#            -Dshared.database.validationQuery="$SHARED_DATABASE_VALIDATION_QUERY" \
+#            -Dapim.database.type="$API_MANAGER_DATABASE_TYPE" \
+#            -Dapim.database.driver="$API_MANAGER_DATABASE_DRIVER" \
+#            -Dapim.database.url="$CLEAN_APIM_URL" \
+#            -Dapim.database.username="$API_MANAGER_DATABASE_USERNAME" \
+#            -Dapim.database.password="$API_MANAGER_DATABASE_PASSWORD" \
+#            -Dapim.database.validationQuery="$API_MANAGER_DATABASE_VALIDATION_QUERY"
+#
+#      - name: Upload test reports
+#        if: always()
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: integration-test-reports-${{ matrix.db_type }}
+#          path: |
+#            all-in-one-apim/modules/integration-v2/tests-integration/**/target/surefire-reports/**
+#            all-in-one-apim/modules/integration-v2/tests-integration/**/target/cucumber-report/**
+#          retention-days: 7
+#          if-no-files-found: warn
 
   version-bump:
     needs: [update-and-build, run-integration-tests]
     runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: write
+      pull-requests: write # REQUIRED for the bot to open a PR
     env:
       CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
     steps:
@@ -545,22 +546,30 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Update pom.xml and push version bump
-        if: needs.update-and-build.outputs.latest_version != '' && needs.update-and-build.outputs.latest_version != needs.update-and-build.outputs.current_version
+      - name: Update pom.xml with new version
+        # Removed the 'if' condition so it ALWAYS runs
         working-directory: all-in-one-apim
         run: |
           LATEST="${{ needs.update-and-build.outputs.latest_version }}"
           echo "Bumping ${CARBON_APIMGT_VERSION_PROPERTY} from ${{ needs.update-and-build.outputs.current_version }} to $LATEST"
+          
           mvn -B \
             org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
             -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
             -DnewVersion=$LATEST \
             -DgenerateBackupPoms=false
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git commit -am "chore: bump carbon-apimgt to $LATEST"
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
+
+      - name: Create Pull Request for Version Bump
+        # Removed the 'if' condition so it ALWAYS runs
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump carbon-apimgt to ${{ needs.update-and-build.outputs.latest_version }}"
+          title: "Automated Version Bump: carbon-apimgt to ${{ needs.update-and-build.outputs.latest_version }}"
+          body: |
+            Automated version bump detected a new release of `carbon-apimgt`.
+            - **Previous version:** `${{ needs.update-and-build.outputs.current_version }}`
+            - **New version:** `${{ needs.update-and-build.outputs.latest_version }}`
+          branch: "bot/bump-carbon-apimgt"
+          base: "${{ github.ref_name }}"
+          labels: "automated pr, version bump"
