@@ -618,174 +618,135 @@ jobs:
           
           fi
 
-      - name: Verify APIM 3.2.0 database dumps exist
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Download APIM 3.2.0 DB Dumps from S3
         run: |
-          # Determine the correct folder based on the matrix DB type
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
-            DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MYSQL"
+            DB_FOLDER="MYSQL"
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
-            DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MSSQL"
+            DB_FOLDER="MSSQL"
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
-            DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/POSTGRESQL"
+            DB_FOLDER="POSTGRESQL"
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            DB_DIR=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE"
+            DB_FOLDER="ORACLE"
           fi
           
-          echo "Using checked-in APIM 3.2.0 DB dumps from $DB_DIR"
+          # Create a local directory for the downloaded dumps
+          LOCAL_DIR=".github/MIGRATION_RESOURCES/DB_DUMPS"
+          mkdir -p "$LOCAL_DIR"
           
-          # List the files for debugging purposes
-          ls -lh $DB_DIR/
+          echo "Downloading 3.2.0 database dumps from S3 folder: db_dumps/$DB_FOLDER/ ..."
           
-          # Hard fail 3.2.0 db dumps are missing
+          # Fetch the files recursively from the specific database folder
+          aws s3 cp "s3://${{ secrets.S3_BUCKET_NAME }}/db_dumps/$DB_FOLDER/" "$LOCAL_DIR/" --recursive
+          
+          # Hard fail if the required dumps were not found in the bucket
           if [ "${{ matrix.db_type }}" == "oracle" ]; then
-            test -f $DB_DIR/apim_db_dump_oracle_320.dmp
-            test -f $DB_DIR/shared_db_dump_oracle_320.dmp
+            test -f "$LOCAL_DIR/apim_db_dump_oracle_320.dmp" || (echo "::error::Missing Oracle APIM dump in S3" && exit 1)
+            test -f "$LOCAL_DIR/shared_db_dump_oracle_320.dmp" || (echo "::error::Missing Oracle Shared dump in S3" && exit 1)
           else
-            test -f $DB_DIR/apim_db_320_dump.sql
-            test -f $DB_DIR/shared_db_320_dump.sql
+            test -f "$LOCAL_DIR/apim_db_320_dump.sql" || (echo "::error::Missing APIM sql dump in S3" && exit 1)
+            test -f "$LOCAL_DIR/shared_db_320_dump.sql" || (echo "::error::Missing Shared sql dump in S3" && exit 1)
           fi
 
       - name: Restore APIM DB dump (3.2.0)
         run: |
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MYSQL/apim_db_320_dump.sql"
-            echo "Restoring MySQL APIM dump..."
-          
-            # Copy SQL inside container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/apim_db_320_dump.sql"
             docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
-          
-            # Restore dump using mysql client
             docker exec -i apim_db bash -c "cat /apim_db_dump.sql | mysql -uapim_user -papimpass WSO2AM_APIMGT_DB"
           
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MSSQL/apim_db_320_dump.sql"
-            echo "Restoring MSSQL APIM dump..."
-          
-            # Copy SQL inside container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/apim_db_320_dump.sql"
             docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
-          
-            # Restore dump using sqlcmd (-i flag specifies the input file)
             docker exec -i apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -C -i /apim_db_dump.sql
           
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/POSTGRESQL/apim_db_320_dump.sql"
-            echo "Restoring PostgreSQL APIM dump..."
-          
-            # Copy SQL inside container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/apim_db_320_dump.sql"
             docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
-          
-            # Restore dump using psql
             docker exec -i -e PGPASSWORD=apimpass apim_db psql -U apim_user -d apim_db -f /apim_db_dump.sql
           
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/apim_db_dump_oracle_320.dmp"
-            echo "Restoring Oracle APIM dump using Data Pump (impdp)..."
-          
-            # Create a directory for the dump inside the container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/apim_db_dump_oracle_320.dmp"
             docker exec -i apim_db bash -c "mkdir -p /tmp/dpdump"
-          
-            # Copy the dump file into the container
             docker cp $DUMP_FILE apim_db:/tmp/dpdump/apim_db_dump_oracle_320.dmp
-          
-            # Create Oracle directory inside the PDB, grant permissions, and run import
             docker exec -i apim_db bash -c "echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO APIM_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba && \
               impdp APIM_DB_USER/apimpass@//localhost:1521/XEPDB1 directory=dp_dir dumpfile=apim_db_dump_oracle_320.dmp logfile=apim_impdp.log full=y"
           fi
-          
           echo "APIM DB dump restored successfully"
 
       - name: Restore Shared DB dump (3.2.0)
         run: |
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MYSQL/shared_db_320_dump.sql"
-            echo "Restoring MySQL Shared dump from $DUMP_FILE..."
-          
-            # Copy SQL inside container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/shared_db_320_dump.sql"
             docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
-          
-            # Restore dump
             docker exec -i shared_db bash -c "cat /shared_db_dump.sql | mysql -ushared_user -psharedpass WSO2AM_COMMON_DB"
           
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/MSSQL/shared_db_320_dump.sql"
-            echo "Restoring MSSQL Shared dump from $DUMP_FILE..."
-          
-            # Copy SQL inside container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/shared_db_320_dump.sql"
             docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
-          
-            # Restore dump using sqlcmd
             docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_dump.sql
           
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/POSTGRESQL/shared_db_320_dump.sql"
-            echo "Restoring PostgreSQL Shared dump from $DUMP_FILE..."
-          
-            # Copy SQL inside container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/shared_db_320_dump.sql"
             docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
-          
-            # Restore dump using psql
             docker exec -i -e PGPASSWORD=sharedpass shared_db psql -U shared_user -d shared_db -f /shared_db_dump.sql
           
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            DUMP_FILE=".github/WORKFLOW_ARTIFACTS/DB_DUMPS/ORACLE/shared_db_dump_oracle_320.dmp"
-            echo "Restoring Oracle Shared dump using Data Pump (impdp)..."
-          
-            # Create a directory for the dump inside the container
+            DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/shared_db_dump_oracle_320.dmp"
             docker exec -i shared_db bash -c "mkdir -p /tmp/dpdump"
-          
-            # Copy the dump file into the container
             docker cp "$DUMP_FILE" shared_db:/tmp/dpdump/shared_db_dump_oracle_320.dmp
-          
-            # Create Oracle directory inside the PDB, grant permissions, and run import
             docker exec -i shared_db bash -c "echo -e \"CREATE OR REPLACE DIRECTORY dp_dir AS '/tmp/dpdump';\nGRANT READ, WRITE ON DIRECTORY dp_dir TO SHARED_DB_USER;\nEXIT;\" | sqlplus -s sys/rootpass@//localhost:1521/XEPDB1 as sysdba && \
               impdp SHARED_DB_USER/sharedpass@//localhost:1521/XEPDB1 directory=dp_dir dumpfile=shared_db_dump_oracle_320.dmp logfile=shared_impdp.log full=y"
           fi
-          
           echo "Shared DB dump restored successfully"
 
       - name: Run DB script on shared_db to add missing registry indices
         run: |
           if [ "${{ matrix.db_type }}" == "mysql" ]; then
-            SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/MySQL.sql"
+            SCRIPT_NAME="MySQL.sql"
+          elif [ "${{ matrix.db_type }}" == "mssql" ]; then
+            SCRIPT_NAME="MSSQL.sql"
+          elif [ "${{ matrix.db_type }}" == "postgre" ]; then
+            SCRIPT_NAME="PostgreSQL.sql"
+          elif [ "${{ matrix.db_type }}" == "oracle" ]; then
+            SCRIPT_NAME="Oracle.sql"
+          fi
+          
+          # 2. Download the script from S3
+          LOCAL_SCRIPT_DIR=".github/MIGRATION_RESOURCES/DB_SCRIPTS"
+          mkdir -p "$LOCAL_SCRIPT_DIR"
+          SCRIPT_FILE="$LOCAL_SCRIPT_DIR/$SCRIPT_NAME"
+          
+          echo "Downloading $SCRIPT_NAME from S3 (db_scripts/$SCRIPT_NAME)..."
+          aws s3 cp "s3://${{ secrets.S3_BUCKET_NAME }}/db_scripts/$SCRIPT_NAME" "$SCRIPT_FILE"
+          
+          # Hard fail if the download failed or file is missing
+          test -f "$SCRIPT_FILE" || (echo "::error::Missing DB script in S3: $SCRIPT_NAME" && exit 1)
+          
+          # 3. Execute the downloaded script against the container
+          if [ "${{ matrix.db_type }}" == "mysql" ]; then
             echo "Running MySQL script on shared_db container..."
-          
-            # Verify file exists
-            test -f "$SCRIPT_FILE"
-          
-            # Copy and execute
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
             docker exec -i shared_db bash -c "cat /shared_db_script.sql | mysql -ushared_user -psharedpass WSO2AM_COMMON_DB"
           
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
-            SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/MSSQL.sql"
             echo "Running MSSQL script on shared_db container..."
-          
-            # Verify file exists
-            test -f "$SCRIPT_FILE"
-          
-            # Copy and execute using sqlcmd
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
             docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_script.sql
           
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
-            SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/PostgreSQL.sql"
             echo "Running PostgreSQL script on shared_db container..."
-          
-            # Verify file exists
-            test -f "$SCRIPT_FILE"
-          
-            # Copy and execute using psql
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
             docker exec -i -e PGPASSWORD=sharedpass shared_db psql -U shared_user -d shared_db -f /shared_db_script.sql
           
           elif [ "${{ matrix.db_type }}" == "oracle" ]; then
-            SCRIPT_FILE=".github/WORKFLOW_ARTIFACTS/DB_SCRIPTS/Oracle.sql"
             echo "Running Oracle script on shared_db container..."
-          
-            # Verify file exists
-            test -f "$SCRIPT_FILE"
-          
-            # Copy and execute using sqlplus (Connecting to XEPDB1)
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
             docker exec -i shared_db bash -c "echo -e '@/shared_db_script.sql\nEXIT;' | sqlplus -s SHARED_DB_USER/sharedpass@//localhost:1521/XEPDB1"
           fi
@@ -831,12 +792,6 @@ jobs:
           
           echo "Docker image built successfully"
           docker images | grep wso2am-migration || true
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
 
       - name: Download Migration Clients from S3
         run: |
@@ -1521,11 +1476,21 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Notify Google Chat on Failure
+        if: failure()
+        run: |
+          PAYLOAD="{\"text\": \"🚨 *APIM Migration Tests Failed!*\nDatabase Type: *${{ matrix.display_name }}*\nPlease investigate the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+          
+          curl -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "${{ secrets.GOOGLE_CHAT_WEBHOOK }}"
+
   version-bump:
     needs: [update-and-build, prepare-and-migrate]
     runs-on: codebuild-product-apim-venu-${{ github.run_id }}-${{ github.run_attempt }}
     permissions:
       contents: write
+      pull-requests: write
     env:
       CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
     steps:
@@ -1542,22 +1507,40 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Update pom.xml and push version bump
+      - name: Update pom.xml with new version
         if: needs.update-and-build.outputs.latest_version != '' && needs.update-and-build.outputs.latest_version != needs.update-and-build.outputs.current_version
         working-directory: all-in-one-apim
         run: |
           LATEST="${{ needs.update-and-build.outputs.latest_version }}"
           echo "Bumping ${CARBON_APIMGT_VERSION_PROPERTY} from ${{ needs.update-and-build.outputs.current_version }} to $LATEST"
+          
           mvn -B \
             org.codehaus.mojo:versions-maven-plugin:2.16.2:set-property \
             -Dproperty=${CARBON_APIMGT_VERSION_PROPERTY} \
             -DnewVersion=$LATEST \
             -DgenerateBackupPoms=false
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-          git commit -am "chore: bump carbon-apimgt to $LATEST"
-          git push origin HEAD:${GITHUB_REF#refs/heads/}
+
+      - name: Create Pull Request for Version Bump
+        id: create_pr
+        if: needs.update-and-build.outputs.latest_version != '' && needs.update-and-build.outputs.latest_version != needs.update-and-build.outputs.current_version
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: bump carbon-apimgt version to ${{ needs.update-and-build.outputs.latest_version }}"
+          title: "Automated Version Bump: carbon-apimgt version to ${{ needs.update-and-build.outputs.latest_version }}"
+          body: |
+            Automated version bump detected a new release of `carbon-apimgt`.
+            - **Previous version:** `${{ needs.update-and-build.outputs.current_version }}`
+            - **New version:** `${{ needs.update-and-build.outputs.latest_version }}`
+          branch: "bot/bump-carbon-apimgt"
+          base: "${{ github.ref_name }}"
+          labels: "automated pr, version bump"
+
+      - name: Notify Google Chat on PR Creation
+        if: steps.create_pr.outputs.pull-request-url != ''
+        run: |
+          PAYLOAD="{\"text\": \"✅ *APIM Migration Tests Passed!*\nA new automated version bump PR has been created.\n👉 *Review PR:* ${{ steps.create_pr.outputs.pull-request-url }}\"}"
+
+          curl -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "${{ secrets.GOOGLE_CHAT_WEBHOOK }}"
