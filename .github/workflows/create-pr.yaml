@@ -74,7 +74,7 @@ jobs:
       - name: Notify Google Chat on PR Creation
         if: steps.create_pr.outputs.pull-request-url != '' # <-- Only runs if a PR was actually opened
         run: |
-          PAYLOAD="{\"text\": \"✅ *APIM Migration Tests Passed!*\nA new automated version bump PR has been successfully created and validated across all databases.\n👉 *Review PR:* ${{ steps.create_pr.outputs.pull-request-url }}\"}"
+          PAYLOAD="{\"text\": \"✅ *APIM Migration Tests Passed!*\nA new automated version bump PR has been successfully created.\n👉 *Review PR:* ${{ steps.create_pr.outputs.pull-request-url }}\"}"
           
           curl -X POST -H 'Content-Type: application/json' \
             -d "$PAYLOAD" \
