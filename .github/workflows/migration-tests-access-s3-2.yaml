@@ -1476,10 +1476,38 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Notify Google Chat on Failure
-        if: failure()
+  notify-failure:
+    needs: [prepare-and-migrate]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # Required to read the workflow job statuses
+    steps:
+      - name: Identify failed databases and notify Google Chat
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PAYLOAD="{\"text\": \"🚨 *APIM Migration Tests Failed!*\nDatabase Type: *${{ matrix.display_name }}*\nPlease investigate the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+          echo "Fetching job status from GitHub API..."
+          
+          # 1. Ask GitHub API for the status of all jobs in this specific workflow run
+          JOB_DATA=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs")
+          
+          # 2. Filter for failed jobs that have "prepare-and-migrate" in the name, and extract the DB name
+          FAILED_DBS=$(echo "$JOB_DATA" \
+            | jq -r '.jobs[] | select(.conclusion == "failure" and (.name | contains("prepare-and-migrate"))) | .name' \
+            | sed 's/prepare-and-migrate - //g' \
+            | paste -sd ", " -)
+          
+          # 3. Fallback just in case the API parsing fails
+          if [ -z "$FAILED_DBS" ]; then
+            FAILED_DBS="Multiple/Unknown (Check Workflow Logs)"
+          fi
+          
+          echo "Failed Databases identified: $FAILED_DBS"
+          
+          # 4. Send the single aggregated notification
+          PAYLOAD="{\"text\": \"❌ *APIM Migration Tests Failed!*\nFailed Databases: *${FAILED_DBS}*\nPlease investigate the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
           
           curl -X POST -H 'Content-Type: application/json' \
             -d "$PAYLOAD" \

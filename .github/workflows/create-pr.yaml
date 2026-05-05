@@ -1,4 +1,4 @@
-name: Test Version Bump PR Bot
+name: Test Aggregated Notifications & PR Bot
 
 on:
   workflow_dispatch:
@@ -8,18 +8,101 @@ on:
         required: true
         default: '9.9.9'
         type: string
+      fail_oracle:
+        description: 'Intentionally fail the Oracle test?'
+        required: true
+        type: boolean
+        default: true
+      fail_mssql:
+        description: 'Intentionally fail the MSSQL test?'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
-  test-pr-creation:
-    runs-on: ubuntu-latest # Using standard GitHub runners for maximum speed!
+  # 1. THE MOCK MATRIX (Simulates your database tests)
+  mock-matrix-tests:
+    name: prepare-and-migrate - ${{ matrix.display_name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # Forces all DBs to finish even if one fails
+      matrix:
+        include:
+          - db_type: mysql
+            display_name: "MySQL"
+          - db_type: mssql
+            display_name: "MSSQL"
+          - db_type: postgre
+            display_name: "PostgreSQL"
+          - db_type: oracle
+            display_name: "Oracle"
+    steps:
+      - name: Simulate Database Migration & Testing
+        run: |
+          echo "Running mock tests for ${{ matrix.display_name }}..."
+          sleep 5 # Simulate work happening
+          
+          # Simulate intentional Oracle failure
+          if [ "${{ matrix.db_type }}" == "oracle" ] && [ "${{ github.event.inputs.fail_oracle }}" == "true" ]; then
+            echo "🚨 Simulating Oracle crash!"
+            exit 1
+          fi
+          
+          # Simulate intentional MSSQL failure
+          if [ "${{ matrix.db_type }}" == "mssql" ] && [ "${{ github.event.inputs.fail_mssql }}" == "true" ]; then
+            echo "🚨 Simulating MSSQL crash!"
+            exit 1
+          fi
+          
+          echo "✅ ${{ matrix.display_name }} tests passed!"
 
+  # 2. THE FAILURE NOTIFICATION JOB (Only runs if matrix fails)
+  notify-failure:
+    needs: [mock-matrix-tests]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # Required to read the workflow job statuses
+    steps:
+      - name: Identify failed databases and notify Google Chat
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching job status from GitHub API..."
+          
+          # Ask GitHub API for the status of jobs in this specific workflow run
+          JOB_DATA=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs")
+          
+          # Filter for failed jobs, extract their names, format the string
+          FAILED_DBS=$(echo "$JOB_DATA" \
+            | jq -r '.jobs[] | select(.conclusion == "failure" and (.name | contains("prepare-and-migrate"))) | .name' \
+            | sed 's/prepare-and-migrate - //g' \
+            | paste -sd ", " -)
+          
+          # Fallback if API parsing fails
+          if [ -z "$FAILED_DBS" ]; then
+            FAILED_DBS="Multiple (Check Workflow Logs)"
+          fi
+          
+          echo "Failed Databases identified: $FAILED_DBS"
+          
+          PAYLOAD="{\"text\": \"❌ *APIM Migration Tests Failed!*\nFailed Databases: *${FAILED_DBS}*\nPlease investigate the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+          
+          curl -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "${{ secrets.GOOGLE_CHAT_WEBHOOK}}"
+
+  # 3. THE PR CREATION JOB (Only runs if matrix succeeds)
+  test-pr-creation:
+    needs: [mock-matrix-tests]
+    if: success()
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write # REQUIRED for the bot to open a PR
-
+      pull-requests: write
     env:
       CARBON_APIMGT_VERSION_PROPERTY: carbon.apimgt.version
-
     steps:
       - name: Checkout product-apim
         uses: actions/checkout@v4
@@ -72,7 +155,7 @@ jobs:
           labels: "automated pr, test"
 
       - name: Notify Google Chat on PR Creation
-        if: steps.create_pr.outputs.pull-request-url != '' # <-- Only runs if a PR was actually opened
+        if: steps.create_pr.outputs.pull-request-url != ''
         run: |
           PAYLOAD="{\"text\": \"✅ *APIM Migration Tests Passed!*\nA new automated version bump PR has been successfully created.\n👉 *Review PR:* ${{ steps.create_pr.outputs.pull-request-url }}\"}"
           
