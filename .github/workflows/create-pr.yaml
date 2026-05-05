@@ -25,7 +25,7 @@ jobs:
     name: prepare-and-migrate - ${{ matrix.display_name }}
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false # Forces all DBs to finish even if one fails
+      fail-fast: false
       matrix:
         include:
           - db_type: mysql
@@ -37,24 +37,10 @@ jobs:
           - db_type: oracle
             display_name: "Oracle"
     steps:
-      - name: Simulate Database Migration & Testing
+      - name: Force Failure for All Databases
         run: |
-          echo "Running mock tests for ${{ matrix.display_name }}..."
-          sleep 5 # Simulate work happening
-          
-          # Simulate intentional Oracle failure
-          if [ "${{ matrix.db_type }}" == "oracle" ] && [ "${{ github.event.inputs.fail_oracle }}" == "true" ]; then
-            echo "🚨 Simulating Oracle crash!"
-            exit 1
-          fi
-          
-          # Simulate intentional MSSQL failure
-          if [ "${{ matrix.db_type }}" == "mssql" ] && [ "${{ github.event.inputs.fail_mssql }}" == "true" ]; then
-            echo "🚨 Simulating MSSQL crash!"
-            exit 1
-          fi
-          
-          echo "✅ ${{ matrix.display_name }} tests passed!"
+          echo "🚨 Intentionally failing ${{ matrix.display_name }} for testing purposes."
+          exit 1
 
   # 2. THE FAILURE NOTIFICATION JOB (Only runs if matrix fails)
   notify-failure:
@@ -76,10 +62,8 @@ jobs:
           
           # Filter for failed jobs, extract their names, format the string
           FAILED_DBS=$(echo "$JOB_DATA" \
-            | jq -r '.jobs[] | select(.conclusion == "failure" and (.name | contains("prepare-and-migrate"))) | .name' \
-            | sed 's/prepare-and-migrate - //g' \
-            | paste -sd ", " -)
-          
+            | jq -r '[.jobs[] | select(.conclusion == "failure" and (.name | contains("prepare-and-migrate"))) | .name | ssub("prepare-and-migrate - "; "")] | join(", ")')
+                  
           # Fallback if API parsing fails
           if [ -z "$FAILED_DBS" ]; then
             FAILED_DBS="Multiple (Check Workflow Logs)"
