@@ -48,34 +48,55 @@ jobs:
     if: failure()
     runs-on: ubuntu-latest
     permissions:
-      actions: read # Required to read the workflow job statuses
+      actions: read
     steps:
       - name: Identify failed databases and notify Google Chat
+        # Set the secret as an environment variable (Security Best Practice)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK }}
         run: |
           echo "Fetching job status from GitHub API..."
           
-          # Ask GitHub API for the status of jobs in this specific workflow run
-          JOB_DATA=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs")
+          # 1. Fetch data with failure check (-f) and capture output/status
+          # Using a temporary file to handle potential large payloads safely
+          HTTP_RESPONSE=$(curl -s -w "%{http_code}" -H "Authorization: Bearer $GH_TOKEN" \
+            "${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs" \
+            -o job_data.json)
           
-          # Filter for failed jobs, extract their names, format the string
-          FAILED_DBS=$(echo "$JOB_DATA" \
-               | jq -r '[.jobs[] | select(.conclusion == "failure" and (.name | contains("prepare-and-migrate"))) | .name | gsub("prepare-and-migrate - "; "")] | join(", ")')   
-       
-          # Fallback if API parsing fails
-          if [ -z "$FAILED_DBS" ]; then
-            FAILED_DBS="Multiple (Check Workflow Logs)"
+          # 2. Validate API Response
+          if [ "$HTTP_RESPONSE" -ne 200 ]; then
+            FAILED_DBS="API Error (Status: $HTTP_RESPONSE)"
+          elif ! jq -e '.jobs' job_data.json >/dev/null 2>&1; then
+            FAILED_DBS="Invalid API Response (Missing jobs array)"
+          else
+            # Parse failures using gsub (fixed typo) and join
+            FAILED_DBS=$(jq -r '[.jobs[] | select(.conclusion == "failure" and (.name | contains("prepare-and-migrate"))) | .name | gsub("prepare-and-migrate - "; "")] | join(", ")' job_data.json)
           fi
           
-          echo "Failed Databases identified: $FAILED_DBS"
+          # Fallback if no specific jobs are found as failed but the workflow failed
+          if [ -z "$FAILED_DBS" ]; then
+            FAILED_DBS="Unknown Failure (Check Workflow Logs)"
+          fi
           
-          PAYLOAD="{\"text\": \"❌ *APIM Migration Tests Failed!*\nFailed Databases: *${FAILED_DBS}*\nPlease investigate the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"
+          echo "Failed Databases: $FAILED_DBS"
           
-          curl -X POST -H 'Content-Type: application/json' \
-            -d "$PAYLOAD" \
-            "${{ secrets.GOOGLE_CHAT_WEBHOOK}}"
+          # 3. Construct Payload
+          PAYLOAD=$(cat <<EOF
+          {
+            "text": "❌ *APIM Migration Tests Failed!*\nFailed Databases: *${FAILED_DBS}*\nPlease investigate the logs here: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+          )
+          
+          # 4. Secure and Robust Curl to Google Chat
+          # Using env var $WEBHOOK_URL instead of secret expansion
+          # Added --fail to ensure the step fails if the webhook returns 4xx/5xx
+          echo "$PAYLOAD" | curl --fail --silent --show-error \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d @- \
+            "$WEBHOOK_URL"
 
   # 3. THE PR CREATION JOB (Only runs if matrix succeeds)
   test-pr-creation:
