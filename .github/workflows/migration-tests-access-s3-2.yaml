@@ -1449,6 +1449,7 @@ jobs:
 
           mvn -B clean install \
             -Pmigration \
+            -Dsurefire.useFile=false \
             -DskipBenchMarkTest=true \
             -DskipRestartTests=true \
             -Ddocker.extra.hosts="--add-host=host.docker.internal:host-gateway" \
