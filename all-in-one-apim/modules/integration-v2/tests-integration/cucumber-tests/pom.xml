@@ -130,6 +130,9 @@
                     <suiteXmlFiles>
                         <suiteXmlFile>src/test/resources/testng.xml</suiteXmlFile>
                     </suiteXmlFiles>
+                    <!-- Ensure test output and SLF4J logs reach the Maven console (and GitHub Actions log) -->
+                    <useFile>false</useFile>
+                    <redirectTestOutputToFile>false</redirectTestOutputToFile>
                     <systemPropertyVariables>
                         <testcontainers.reuse.enable>true</testcontainers.reuse.enable>
                         <org.apache.http.wire.level>OFF</org.apache.http.wire.level>
