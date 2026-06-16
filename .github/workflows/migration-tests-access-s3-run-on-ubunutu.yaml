@@ -123,8 +123,8 @@ jobs:
 
           - db_type: mssql
             display_name: "MSSQL"
-            apim_url: "jdbc:sqlserver://host.docker.internal:1433;databaseName=apim_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
-            shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=shared_db;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            apim_url: "jdbc:sqlserver://host.docker.internal:1433;databaseName=WSO2AM_APIMGT_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
+            shared_url: "jdbc:sqlserver://host.docker.internal:1434;databaseName=WSO2AM_COMMON_DB;SendStringParametersAsUnicode=false;integratedSecurity=false;encrypt=false"
             driver_class: "com.microsoft.sqlserver.jdbc.SQLServerDriver"
             validation_query: "SELECT 1"
             apim_username: "apim_user"
@@ -240,17 +240,14 @@ jobs:
               exit 1
             fi
           
-            echo "Creating APIM Database and Login..."
-            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE apim_db; CREATE LOGIN apim_user WITH PASSWORD = 'apimpass', CHECK_POLICY = OFF;"
-          
-            echo "Mapping APIM User to Database..."
-            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -Q "CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
-          
-            echo "Creating Shared Database and Login..."
-            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE DATABASE shared_db; CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass', CHECK_POLICY = OFF;"
-          
-            echo "Mapping Shared User to Database..."
-            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -Q "CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
+            # NOTE: The databases (WSO2AM_APIMGT_DB / WSO2AM_COMMON_DB) are created by the
+            # 3.2.0 dump scripts themselves, so we only create the server-level logins here.
+            # User-to-database mapping happens after the dumps are restored.
+            echo "Creating APIM Login..."
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE LOGIN apim_user WITH PASSWORD = 'apimpass', CHECK_POLICY = OFF;"
+
+            echo "Creating Shared Login..."
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "CREATE LOGIN shared_user WITH PASSWORD = 'sharedpass', CHECK_POLICY = OFF;"
           
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             echo "Starting PostgreSQL for APIM DB..."
@@ -503,11 +500,9 @@ jobs:
             done
           
             echo "MSSQL databases are responding successfully!"
-          
-            echo "Applying MSSQL concurrency fix..."
-            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE apim_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
-            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE shared_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
-          
+            # NOTE: READ_COMMITTED_SNAPSHOT is enabled after the dumps are restored,
+            # since the target databases (WSO2AM_APIMGT_DB / WSO2AM_COMMON_DB) do not exist yet.
+
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             echo "Waiting for PostgreSQL databases..."
             for i in {1..60}; do
@@ -664,8 +659,12 @@ jobs:
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
             DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/apim_db_320_dump.sql"
             docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
-            docker exec -i apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d apim_db -C -i /apim_db_dump.sql
-          
+            # The dump runs USE [master] then CREATE DATABASE [WSO2AM_APIMGT_DB], so connect to master.
+            docker exec -i apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d master -C -i /apim_db_dump.sql
+            # Map the apim_user login into the freshly created database and enable RCSI.
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d WSO2AM_APIMGT_DB -C -Q "CREATE USER apim_user FOR LOGIN apim_user; ALTER ROLE db_owner ADD MEMBER apim_user;"
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d master -C -Q "ALTER DATABASE WSO2AM_APIMGT_DB SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/apim_db_320_dump.sql"
             docker cp $DUMP_FILE apim_db:/apim_db_dump.sql
@@ -690,8 +689,12 @@ jobs:
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
             DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/shared_db_320_dump.sql"
             docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
-            docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_dump.sql
-          
+            # The dump runs USE [master] then CREATE DATABASE [WSO2AM_COMMON_DB], so connect to master.
+            docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d master -C -i /shared_db_dump.sql
+            # Map the shared_user login into the freshly created database and enable RCSI.
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d WSO2AM_COMMON_DB -C -Q "CREATE USER shared_user FOR LOGIN shared_user; ALTER ROLE db_owner ADD MEMBER shared_user;"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d master -C -Q "ALTER DATABASE WSO2AM_COMMON_DB SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             DUMP_FILE=".github/MIGRATION_RESOURCES/DB_DUMPS/shared_db_320_dump.sql"
             docker cp "$DUMP_FILE" shared_db:/shared_db_dump.sql
@@ -738,7 +741,7 @@ jobs:
           elif [ "${{ matrix.db_type }}" == "mssql" ]; then
             echo "Running MSSQL script on shared_db container..."
             docker cp "$SCRIPT_FILE" shared_db:/shared_db_script.sql
-            docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d shared_db -C -i /shared_db_script.sql
+            docker exec -i shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -d WSO2AM_COMMON_DB -C -i /shared_db_script.sql
           
           elif [ "${{ matrix.db_type }}" == "postgre" ]; then
             echo "Running PostgreSQL script on shared_db container..."
@@ -1341,13 +1344,13 @@ jobs:
             # Install inside the venv
             pip install mssql-scripter
           
-            echo "Dumping MSSQL apim_db to .sql format..."
+            echo "Dumping MSSQL WSO2AM_APIMGT_DB to .sql format..."
             # Run the module directly via python so it doesn't get confused by the wrapper bug
-            python -m mssqlscripter -S localhost,1433 -U sa -P 'RootPass123!' -d apim_db --schema-and-data \
+            python -m mssqlscripter -S localhost,1433 -U sa -P 'RootPass123!' -d WSO2AM_APIMGT_DB --schema-and-data \
               > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/apim_db_after_migration.sql
-          
-            echo "Dumping MSSQL shared_db to .sql format..."
-            python -m mssqlscripter -S localhost,1434 -U sa -P 'RootPass123!' -d shared_db --schema-and-data \
+
+            echo "Dumping MSSQL WSO2AM_COMMON_DB to .sql format..."
+            python -m mssqlscripter -S localhost,1434 -U sa -P 'RootPass123!' -d WSO2AM_COMMON_DB --schema-and-data \
               > .github/WORKFLOW_ARTIFACTS/DB_DUMPS_AFTER_MIGRATION/shared_db_after_migration.sql
           
             # Deactivate the venv just to be clean
@@ -1443,8 +1446,8 @@ jobs:
           echo "Applying MSSQL concurrency fix..."    
           if [ "${{ matrix.db_type }}" == "mssql" ]; then
             echo "Enabling READ_COMMITTED_SNAPSHOT just before tests to prevent deadlocks..."
-            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE apim_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
-            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE shared_db SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+            docker exec apim_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE WSO2AM_APIMGT_DB SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
+            docker exec shared_db /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'RootPass123!' -Q "ALTER DATABASE WSO2AM_COMMON_DB SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;"
           fi
 
           mvn -B clean install \
